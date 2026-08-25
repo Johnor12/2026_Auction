@@ -1,0 +1,43 @@
+name: Deploy dashboard to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - rankings.json
+      - data_source_investigator/index.html
+      - data_source_matches.json
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# shared with refresh.yml so the two never run at once; queue: max keeps
+# every run queued instead of replacing the pending one
+concurrency:
+  group: rankings-pipeline
+  queue: max
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assemble site
+        run: |
+          # the investigator page fetches ../data_source_matches.json, so the
+          # report must sit at the site root
+          mkdir -p site/data_source_investigator
+          cp index.html rankings.json data_source_matches.json site/
+          cp data_source_investigator/index.html site/data_source_investigator/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - id: deployment
+        uses: actions/deploy-pages@v4

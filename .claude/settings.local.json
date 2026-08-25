@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(update-config)",
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('.claude/settings.json'\\)\\);print\\(d['permissions']['defaultMode'], d['skipDangerousModePermissionPrompt'], len\\(d['hooks']['Stop']\\)\\)\")"
+    ]
+  }
+}

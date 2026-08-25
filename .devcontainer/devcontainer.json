@@ -1,0 +1,7 @@
+{
+  "postStartCommand": "setsid python3 -m http.server 8000 > /tmp/dashboard-server.log 2>&1 < /dev/null &",
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": { "label": "dashboard" }
+  }
+}

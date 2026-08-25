@@ -1,0 +1,21 @@
+rework the model into more of a simulation and less of a hard coded equation.
+
+The goal should be to maximize the sum of weekly starter values over the next three years. we must assume that our
+projections bake risks like injury and demotion in, but unfortunately they are too coarse to be useful: injuries are
+spiky while our projections are season-long averages. Injuries don't reduce the average of all games for a season by 4; 
+they remove some number of games completely, potentially followed by a ramp up period. 
+that matters for starting lineups and backups. 
+but we can't add simulated injuries on top of projections because they would be double counted, 
+affecting positional differences. injuries would also cause a commiserate increase in backup scores during the relevant weeks.
+
+Bye weeks on the other hand we can apply (exactly for year one, randomly for future years), because they affect all players
+equally.
+
+  4. Opponent-source uncertainty is discarded.
+
+  Eight of nine opponents currently have a weak source classification, but each is assigned categorically to its single closest board (ranker/
+  opponents.py:190).
+
+  The forward replay passed mechanically, but its predictive results were mixed:
+
+  - 67 opponent picks evaluated.

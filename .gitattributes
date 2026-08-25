@@ -1,0 +1,2 @@
+# Keep text files identical across Windows, WSL, and Linux.
+* text=auto eol=lf

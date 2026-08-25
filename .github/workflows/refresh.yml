@@ -1,0 +1,43 @@
+name: Refresh rankings
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+# shared with deploy-pages.yml so the two never run at once; queue: max keeps
+# every run queued instead of replacing the pending one
+concurrency:
+  group: rankings-pipeline
+  queue: max
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      # ref: main resolves at job start (not dispatch time), so a queued run
+      # sees commits pushed by the run ahead of it in the concurrency group
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: astral-sh/setup-uv@v5
+      - name: Run refresh
+        run: uv run refresh.py --report
+      - name: Commit changes
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add draft.json rankings.json data_source_matches.json
+          git diff --cached --quiet && echo "no changes" && exit 0
+          git commit -m "refresh rankings"
+          git push
+          echo "pushed=true" >> "$GITHUB_OUTPUT"
+      # a GITHUB_TOKEN push doesn't trigger the Pages workflow, so dispatch it ourselves
+      - name: Trigger Pages deploy
+        if: steps.commit.outputs.pushed == 'true'
+        run: gh workflow run deploy-pages.yml
+        env:
+          GH_TOKEN: ${{ github.token }}

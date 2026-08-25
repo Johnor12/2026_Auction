@@ -1,0 +1,27 @@
+0000000000000000000000000000000000000000 55fac528a32956fe46d5fbd5c2091d0776eab552 John McGue <johnmcgue94@gmail.com> 1785967199 -0400	clone: from https://github.com/Johnor12/2026_dynasty_draft.git
+55fac528a32956fe46d5fbd5c2091d0776eab552 0a186fef9dd854892cae90a8ada7f471778fec12 John McGue <johnmcgue94@gmail.com> 1785970971 -0400	commit: translate claude settings to codex
+0a186fef9dd854892cae90a8ada7f471778fec12 2460f01ba02ca78a9f1e1d60917ab4d3a82ade48 John McGue <johnmcgue94@gmail.com> 1786196260 -0400	pull --tags origin main: Fast-forward
+2460f01ba02ca78a9f1e1d60917ab4d3a82ade48 1ed4a868031db2c42cc17bfdc2c0878ecab5a1a3 John McGue <johnmcgue94@gmail.com> 1786196998 -0400	commit: handle line endings
+1ed4a868031db2c42cc17bfdc2c0878ecab5a1a3 3bf218e7fae2d1cdb53b2c4383cea46c79455d30 John McGue <johnmcgue94@gmail.com> 1786205587 -0400	commit: revert separate opponent strategy
+3bf218e7fae2d1cdb53b2c4383cea46c79455d30 1ed4a868031db2c42cc17bfdc2c0878ecab5a1a3 John McGue <johnmcgue94@gmail.com> 1786205592 -0400	reset: moving to HEAD~
+1ed4a868031db2c42cc17bfdc2c0878ecab5a1a3 e131e3d01b9b7cca29bd76a7681e5b721446f4e7 John McGue <johnmcgue94@gmail.com> 1786205595 -0400	pull --tags origin main: Fast-forward
+e131e3d01b9b7cca29bd76a7681e5b721446f4e7 fd105dce14f1591171daa160d03969359bfbdeb9 John McGue <johnmcgue94@gmail.com> 1786205621 -0400	commit: revert separate opponent strategy
+fd105dce14f1591171daa160d03969359bfbdeb9 1f07a95ba4e4edd052cacd0e0bc73c6a78fa6096 John McGue <johnmcgue94@gmail.com> 1786207439 -0400	pull --tags origin main: Fast-forward
+1f07a95ba4e4edd052cacd0e0bc73c6a78fa6096 b5095d5279fffe7be78cd2b0a3e831697a1fd5b6 John McGue <johnmcgue94@gmail.com> 1786207636 -0400	commit: refresh
+b5095d5279fffe7be78cd2b0a3e831697a1fd5b6 d5bb7a20ce51d1f7b90e3929471f0962164a4f4c John McGue <johnmcgue94@gmail.com> 1786217845 -0400	commit: fix ranking bugs
+d5bb7a20ce51d1f7b90e3929471f0962164a4f4c 5f56f924fd0d6fe957ff8e43689ab11bc44305f5 John McGue <johnmcgue94@gmail.com> 1786226754 -0400	commit: update rankings
+5f56f924fd0d6fe957ff8e43689ab11bc44305f5 a147344c3278c507a8f2b9656b79eb1205c3e055 John McGue <johnmcgue94@gmail.com> 1786284238 -0400	pull --tags origin main: Fast-forward
+a147344c3278c507a8f2b9656b79eb1205c3e055 98110c566fc445f0cf361f0982a6f67324ef2a32 John McGue <johnmcgue94@gmail.com> 1786284767 -0400	commit: refresh
+98110c566fc445f0cf361f0982a6f67324ef2a32 4a94d6b573e86456c4f903e8ee6b17580fc65c4b John McGue <johnmcgue94@gmail.com> 1786305688 -0400	pull --tags origin main: Fast-forward
+4a94d6b573e86456c4f903e8ee6b17580fc65c4b 0719370ab0594108c4fd41baf7e46c5ad2943b7c John McGue <johnmcgue94@gmail.com> 1786306486 -0400	commit: remove vor
+0719370ab0594108c4fd41baf7e46c5ad2943b7c ead4b5a5b3b95ad9d8826e175802ad2aa53b83b7 John McGue <johnmcgue94@gmail.com> 1786309723 -0400	commit: fix lineup eval
+ead4b5a5b3b95ad9d8826e175802ad2aa53b83b7 a2606a7bc2bc17a0570a253d8df7649cce690325 John McGue <johnmcgue94@gmail.com> 1786321974 -0400	pull --tags origin main: Fast-forward
+a2606a7bc2bc17a0570a253d8df7649cce690325 c39cd78079b9e81725e91c7e01ff750d2a00af4f John McGue <johnmcgue94@gmail.com> 1786322090 -0400	commit: latest
+c39cd78079b9e81725e91c7e01ff750d2a00af4f 3e75a0dfd2bfebf2260fe62c0c39da094708a3a7 John McGue <johnmcgue94@gmail.com> 1786323295 -0400	commit: ui refresh
+3e75a0dfd2bfebf2260fe62c0c39da094708a3a7 249d1d3ac68bd6d552f64618f603cb22056b60aa John McGue <johnmcgue94@gmail.com> 1786328797 -0400	commit: handle mr rodgers
+249d1d3ac68bd6d552f64618f603cb22056b60aa 688d6cbb250887d2ac18a735f0218e152392f70b John McGue <johnmcgue94@gmail.com> 1786403049 -0400	pull --tags origin main: Fast-forward
+688d6cbb250887d2ac18a735f0218e152392f70b 81a90a892eab06f8868e1f4284393ec8a197343f John McGue <johnmcgue94@gmail.com> 1786404242 -0400	commit: rip
+81a90a892eab06f8868e1f4284393ec8a197343f cdbc8ae10ea4ee3db9c003dfac2ceb3aa7bfcb89 John McGue <johnmcgue94@gmail.com> 1786411471 -0400	commit: refresh
+cdbc8ae10ea4ee3db9c003dfac2ceb3aa7bfcb89 c1f73201aca4e3d60b46120ab658263d16fd8f41 John McGue <johnmcgue94@gmail.com> 1786493005 -0400	pull --tags origin main: Fast-forward
+c1f73201aca4e3d60b46120ab658263d16fd8f41 238180d766793ae835cf3e9f088ec92cfa0d5b24 John McGue <johnmcgue94@gmail.com> 1786576476 -0400	pull --tags origin main: Fast-forward
+238180d766793ae835cf3e9f088ec92cfa0d5b24 4eaa2e21606ec08ec1aa81d8ed1ede65bba83aa0 John McGue <johnmcgue94@gmail.com> 1786584714 -0400	commit: final
