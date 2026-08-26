@@ -24,6 +24,9 @@ This is one objective with one set of units: expected lineup points. There is no
 threshold and no separate bench bonus. A better projection can retain every role a worse
 projection could fill, which makes roster value monotone when a player improves, is
 replaced by a better same-position player, or is simply added.
+
+The position-wide unavailability rate combines injury risk with one independently
+averaged bye in 18 weeks. Team-specific bye correlations are not available in pool.json.
 """
 
 from __future__ import annotations

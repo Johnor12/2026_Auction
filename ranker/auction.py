@@ -33,6 +33,10 @@ from .value import team_values_with_candidates
 _FIELD_NOISE_SIGMA = 0.16
 _FIELD_NOISE_LOG_MEAN = -0.14
 _AUCTION_SIMULATIONS = 40
+# A maximum is a ceiling on one of many alternative purchases, not expected spend.
+# Full-auction rollouts peak at 1.8x; lower ceilings strand cash and higher ones lose
+# expected-lineup value to early overpays.
+_MAX_BID_HEADROOM = 1.8
 
 
 @dataclass(slots=True)
@@ -509,7 +513,7 @@ def _source_by_roster(
 def _value_max_bid(team: Team, player: Player, gain: float, point_rate: float) -> int:
     if not _purchase_is_legal(team, player):
         return 0
-    share = gain / point_rate if point_rate > 0 else 0.0
+    share = _MAX_BID_HEADROOM * gain / point_rate if point_rate > 0 else 0.0
     modeled = math.floor(MIN_BID + share + 0.5)
     return min(team.max_legal_bid, max(MIN_BID, modeled))
 
@@ -519,11 +523,29 @@ def _percentile(values: list[int], fraction: float) -> int:
     return ordered[round((len(ordered) - 1) * fraction)]
 
 
+def _nominal_starters(roster: list[Player]) -> set[int]:
+    """Healthy year-one starters; expected value still reselects the weekly lineup."""
+    caps = dict(STARTING_SLOTS)
+    starters: set[int] = set()
+    for player in sorted(roster, key=lambda item: (-item.points_yr1, item.player_id)):
+        for slot in (
+            ("QB", "SF")
+            if player.position == "QB"
+            else (player.position, "FLEX", "SF")
+        ):
+            if caps[slot]:
+                caps[slot] -= 1
+                starters.add(player.player_id)
+                break
+    return starters
+
+
 def _simulate_auctions(
     state: AuctionState,
     candidates: list[Player],
     wire: dict,
     initial_completion_gain: float,
+    initial_completion_plan: list[dict],
     curve: list[float],
     source_ranks: dict[str, dict[int, int]],
     consensus_rank: dict[int, int],
@@ -538,11 +560,14 @@ def _simulate_auctions(
     completed = 0
     roster_values: list[float] = []
     mine_spent: list[int] = []
+    mine_unused: list[int] = []
+    nominal_starter_points: list[float] = []
+    depth_lineup_points: list[float] = []
     mine_position_counts = {position: [] for position in POSITIONS}
     league_position_max = {position: 0 for position in POSITIONS}
     pathological_rosters = 0
     representative: list[dict] = []
-    outcomes: list[tuple[float, list[dict]]] = []
+    outcomes: list[dict] = []
     source_ids = sorted(source_ranks)
 
     for simulation in range(_AUCTION_SIMULATIONS):
@@ -565,6 +590,7 @@ def _simulate_auctions(
         )
         available = list(candidates)
         completion_gain = initial_completion_gain
+        completion_ids = {row["player_id"] for row in initial_completion_plan}
         discretionary = max(
             0, sim_state.mine.remaining_budget - MIN_BID * sim_state.mine.slots_left
         )
@@ -631,7 +657,12 @@ def _simulate_auctions(
             sim_state.taken.add(player.player_id)
             if winner.is_mine:
                 acquired[player.player_id].append(price)
-                completion_gain, _ = _completion_gain(sim_state.mine, available, wire)
+            # Removing any other player leaves the existing greedy completion unchanged.
+            if winner.is_mine or player.player_id in completion_ids:
+                completion_gain, completion_plan = _completion_gain(
+                    sim_state.mine, available, wire
+                )
+                completion_ids = {row["player_id"] for row in completion_plan}
                 discretionary = max(
                     0,
                     sim_state.mine.remaining_budget
@@ -656,6 +687,14 @@ def _simulate_auctions(
         value, _ = team_values_with_candidates(sim_state.mine.players, wire, [])
         roster_values.append(value)
         mine_spent.append(sim_state.mine.spent)
+        mine_unused.append(sim_state.mine.remaining_budget)
+        starter_ids = _nominal_starters(sim_state.mine.players)
+        starters = [
+            player for player in sim_state.mine.players if player.player_id in starter_ids
+        ]
+        starter_value, _ = team_values_with_candidates(starters, wire, [])
+        nominal_starter_points.append(sum(player.points_yr1 for player in starters))
+        depth_lineup_points.append(max(0.0, value - starter_value))
         counts = sim_state.mine.position_counts()
         for position in POSITIONS:
             mine_position_counts[position].append(counts[position])
@@ -665,15 +704,33 @@ def _simulate_auctions(
                 "name": purchase.player.name,
                 "position": purchase.player.position,
                 "amount": purchase.amount,
+                "role": (
+                    "starter"
+                    if purchase.player.player_id in starter_ids
+                    else "bench"
+                ),
             }
             for purchase in sim_state.mine.purchases[len(state.mine.purchases) :]
             if purchase.player is not None
         ]
-        outcomes.append((value, roster))
+        outcomes.append(
+            {
+                "value": value,
+                "roster": roster,
+                "remaining_budget": sim_state.mine.remaining_budget,
+                "nominal_starter_points": nominal_starter_points[-1],
+                "depth_lineup_points": depth_lineup_points[-1],
+            }
+        )
 
     if outcomes:
-        median_value = statistics.median(value for value, _ in outcomes)
-        representative = min(outcomes, key=lambda item: abs(item[0] - median_value))[1]
+        median_value = statistics.median(outcome["value"] for outcome in outcomes)
+        representative_outcome = min(
+            outcomes, key=lambda outcome: abs(outcome["value"] - median_value)
+        )
+        representative = representative_outcome["roster"]
+    else:
+        representative_outcome = None
 
     player_results = {}
     for player in candidates:
@@ -704,6 +761,29 @@ def _simulate_auctions(
             "low": min(mine_spent) if mine_spent else None,
             "high": max(mine_spent) if mine_spent else None,
         },
+        "my_unused_budget": {
+            "mean": round(statistics.mean(mine_unused), 1) if mine_unused else None,
+            "low": min(mine_unused) if mine_unused else None,
+            "high": max(mine_unused) if mine_unused else None,
+        },
+        "my_nominal_starter_points": {
+            "mean": round(statistics.mean(nominal_starter_points), 1)
+            if nominal_starter_points
+            else None,
+            "low": round(min(nominal_starter_points), 1)
+            if nominal_starter_points
+            else None,
+            "high": round(max(nominal_starter_points), 1)
+            if nominal_starter_points
+            else None,
+        },
+        "my_depth_lineup_points": {
+            "mean": round(statistics.mean(depth_lineup_points), 1)
+            if depth_lineup_points
+            else None,
+            "low": round(min(depth_lineup_points), 1) if depth_lineup_points else None,
+            "high": round(max(depth_lineup_points), 1) if depth_lineup_points else None,
+        },
         "my_position_ranges": {
             position: {
                 "low": min(counts) if counts else None,
@@ -713,6 +793,21 @@ def _simulate_auctions(
         },
         "largest_simulated_position_counts": league_position_max,
         "pathological_rosters": pathological_rosters,
+        "representative_remaining_budget": (
+            representative_outcome["remaining_budget"]
+            if representative_outcome
+            else None
+        ),
+        "representative_nominal_starter_points": (
+            round(representative_outcome["nominal_starter_points"], 1)
+            if representative_outcome
+            else None
+        ),
+        "representative_depth_lineup_points": (
+            round(representative_outcome["depth_lineup_points"], 1)
+            if representative_outcome
+            else None
+        ),
         "representative_completion": representative,
     }
     return summary, player_results
@@ -851,6 +946,7 @@ def analyze(
         candidates,
         wire,
         completion_gain,
+        plan,
         curve,
         source_ranks,
         consensus_rank,
@@ -965,12 +1061,12 @@ def analyze(
             "wire": {h: {p: round(v, 1) for p, v in levels.items()} for h, levels in wire.items()},
             "simulation": simulation,
             "pricing_note": (
-                "Max bid assigns the roster's dollars in proportion to each player's current "
-                "marginal share of a complete projected lineup, then applies the hard $1 "
-                "reserve for every other open slot. Field price is one dollar above the "
-                "second-highest legal opponent ceiling, capped by the highest. Opponent "
-                "ceilings use distinct source boards, stable evaluation noise, roster depth, "
-                "remaining budgets, and live inflation."
+                "Max bid converts current marginal expected-lineup value at the completion "
+                "plan's point-to-dollar rate. Bid ceilings receive 1.8x headroom because "
+                "they are alternative limits rather than expected prices; full-auction rollouts "
+                "selected that level by final expected-lineup value and spend. Every bid "
+                "still reserves $1 for every other open slot. Field price is one dollar above "
+                "the second-highest legal opponent ceiling, capped by the highest."
             ),
         },
         "my_auction": {
@@ -982,7 +1078,9 @@ def analyze(
             "slots_left": state.mine.slots_left,
             "max_legal_bid": state.mine.max_legal_bid,
             "discretionary_budget": discretionary,
-            "points_per_discretionary_dollar": round(point_rate, 2),
+            "points_per_discretionary_dollar": round(
+                point_rate / _MAX_BID_HEADROOM, 2
+            ),
             "completion_gain": round(completion_gain, 1),
             "completion_plan": plan,
         },
@@ -1058,6 +1156,13 @@ def selftest(players: list[Player], rankings: dict) -> list[str]:
         problems.append("not every selftest auction simulation completed legally")
     if simulation["pathological_rosters"]:
         problems.append("selftest auction simulations produced a pathological position count")
+    if simulation["my_unused_budget"]["mean"] > 8:
+        problems.append("auction policy strands more than $8 on average")
+    roles = [row["role"] for row in simulation["representative_completion"]]
+    if roles.count("starter") != sum(STARTING_SLOTS.values()):
+        problems.append("representative completion does not identify nine nominal starters")
+    if roles.count("bench") != ROSTER_SLOTS - sum(STARTING_SLOTS.values()):
+        problems.append("representative completion does not identify five bench players")
     if not result["validation"]["ok"]:
         problems.extend(result["validation"]["problems"])
 

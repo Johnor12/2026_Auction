@@ -59,13 +59,16 @@ SLOT_ELIGIBLE = {
 
 # --- strategy knobs ---------------------------------------------------------------
 
-# Chance a player is unavailable when a lineup job must be filled. The expected-lineup
-# solver applies these position-wide assumptions to the whole depth chart: the weekly
-# lineup is re-optimized across positions, and a body's contribution is the exact
-# probability that the re-optimized lineup calls on it.
-# Projections already express growth, so years 2-3 use the same availability model rather
-# than receiving a second, separate growth bonus.
-UNAVAILABLE_RATE = {"QB": 0.08, "RB": 0.20, "WR": 0.12, "TE": 0.10}
+# Injury and role-loss risk when a weekly lineup job must be filled. Season projections
+# are unconditional, so value.py preserves each player's projected total while letting a
+# replacement contribute during unavailable weeks. One bye in 18 weeks is independent
+# here because pool.json does not carry the schedule's team-specific bye correlations.
+INJURY_UNAVAILABLE_RATE = {"QB": 0.08, "RB": 0.20, "WR": 0.12, "TE": 0.10}
+BYE_UNAVAILABLE_RATE = 1.0 / 18.0
+UNAVAILABLE_RATE = {
+    position: 1.0 - (1.0 - injury) * (1.0 - BYE_UNAVAILABLE_RATE)
+    for position, injury in INJURY_UNAVAILABLE_RATE.items()
+}
 SURVIVAL_SIGMA = 3.5  # softness of "will he last until my next pick"
 # Candidates per position *per horizon ordering* considered for the next pick — the
 # lists take the top of both the year-1 and the years-2-3 ordering, so this yields up

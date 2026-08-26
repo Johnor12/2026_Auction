@@ -27,9 +27,11 @@ the `rank.py` execution path.
 ## Roster value
 
 `lineup_gain` is the player's marginal expected optimal-lineup points on our current
-roster. Higher players can cover missing starters; deeper players contribute according
-to the probability they are called up when players above them are unavailable. One
-projected post-draft waiver player per position is available as a fallback.
+roster. The best legal lineup is reselected, so a better player can demote a nominal
+starter without an injury. Deeper players contribute only when that reselected lineup
+calls on them. Position-level injury risk and one averaged bye in 18 weeks supply those
+replacement opportunities; team-specific bye correlations are unavailable in
+`pool.json`. One projected post-draft waiver player per position is a fallback.
 
 The waiver line is estimated by removing the players the field consensus expects the
 league's remaining open roster spots to consume. Made purchases remain on their real
@@ -39,8 +41,10 @@ rosters and are removed from the available pool.
 
 The ranker greedily completes our current roster by marginal expected-lineup value. It
 allocates all discretionary dollars across the gains in that completion, producing one
-points-per-dollar rate. An available player's maximum bid is $1 plus its current marginal
-lineup gain at that rate, capped by
+points-per-dollar rate. A maximum bid uses 1.8x the corresponding allocation because
+mutually exclusive bid ceilings are not expected purchase prices. Fixed-seed full-draft
+comparisons selected 1.8x by final expected-lineup value: lower ceilings stranded budget
+and higher ceilings overpaid early. The result is capped by
 `remaining budget - $1 * (other open slots)`.
 
 This removes the FantasyPros curve's $57 top-player outlier from our personal budget. The
@@ -63,21 +67,25 @@ ceiling, capped by the highest. Nomination recommendations require a positive
 ## Cost-efficient targets
 
 Forty fixed-seed rollouts finish the complete auction from the current state. They vary
-nomination order, cold-start opponent sources, and opponent evaluation noise. After every
-purchase, our bidding policy revalues its remaining projected roster completion so savings
-and missed targets change later bids.
+nomination order, cold-start opponent sources, and opponent evaluation noise. The bidding
+policy revalues whenever our roster or the projected completion changes, so savings and
+missed targets change later bids.
 
 Each row reports the 10th, 50th, and 90th percentile simulated closing price, its simulated
 acquisition rate, and our average price when acquired. The **Pursue** list ranks players
 that most often land on the roster. It is a sequential uncertainty-aware heuristic, not
 a globally optimal roster chosen with knowledge of all future prices.
 
+The simulation summary reports final spend and unused budget, nominal healthy-starter
+points, and the additional expected-lineup value supplied by the bench. Its representative
+completion marks each purchase as `starter` or `bench` for direct roster inspection.
+
 ## Bounded live work
 
 The ranker examines at most 240 available players: remaining league purchases plus a
 72-player waiver buffer, capped at 240. The output board shrinks during the auction.
 Fixed seeds keep output deterministic. On the current 480-player input, pricing and 40
-complete rollouts take roughly ten seconds on one CPU.
+complete rollouts takes roughly 40 seconds on one CPU.
 
 ## Output contract
 

@@ -339,13 +339,22 @@ def lineup_selftest(players: list[Player]) -> list[str]:
     # With one QB job: QB1 always supplies his unconditional projection, QB2 is used
     # when QB1 is unavailable, and the unique wire body is used only when both are out.
     one_qb = position_expected_value([qb1, qb2], 50.0, 1, "yr1")
+    qb_unavailable = UNAVAILABLE_RATE["QB"]
     check(
-        abs(one_qb - (100.0 + 0.08 * 80.0 + 0.08**2 * 50.0)) < 1e-9,
+        abs(
+            one_qb
+            - (100.0 + qb_unavailable * 80.0 + qb_unavailable**2 * 50.0)
+        )
+        < 1e-9,
         f"one-QB expectation is {one_qb:.6f}",
     )
     two_qb = position_expected_value([qb1, qb2], 50.0, 2, "yr1")
     check(
-        abs(two_qb - (180.0 + (1.0 - 0.92**2) * 50.0)) < 1e-9,
+        abs(
+            two_qb
+            - (180.0 + (1.0 - (1.0 - qb_unavailable) ** 2) * 50.0)
+        )
+        < 1e-9,
         f"two-QB expectation is {two_qb:.6f}",
     )
 
@@ -471,10 +480,12 @@ def lineup_selftest(players: list[Player]) -> list[str]:
     stafford = by_name["Matthew Stafford"]
     murray_future = expected_lineup_value(current + [murray], wire["yr23"], "yr23")
     stafford_future = expected_lineup_value(current + [stafford], wire["yr23"], "yr23")
-    check(
-        stafford_future > murray_future,
-        "Stafford's higher years-2-3 projection valued below Murray's",
-    )
+    # The active redraft pool deliberately has no future horizon.
+    if any(player.points_yr23 for player in players):
+        check(
+            stafford_future > murray_future,
+            "Stafford's higher years-2-3 projection valued below Murray's",
+        )
 
     print(
         "  expected lineup: exact QB depth probabilities, unique wire capacity, and "

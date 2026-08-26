@@ -30,6 +30,11 @@ Projections are FantasyPros' 2026 consensus season projections scored by
 `pool_pipeline/` under these settings. These are project assumptions, not runtime flags;
 the constants live in `ranker/league.py`.
 
+Roster value is the expected best legal lineup, reselected whenever a better healthy
+player can demote a nominal starter. Position-level injury risk and one bye in 18 weeks
+give useful depth its replacement value. The pool does not carry team bye weeks, so bye
+unavailability is averaged independently rather than correlated by NFL team.
+
 ## Setup
 
 [uv](https://docs.astral.sh/uv/) pins Python 3.12.
@@ -69,9 +74,12 @@ The published files have distinct owners:
 
 Our maximum bid does not copy the provider's player prices. The ranker greedily completes
 our current roster by marginal expected-lineup value, then allocates every remaining
-discretionary dollar across that completion value. Each available player's current
-marginal value receives the same point-to-dollar rate. The result is capped by the hard
-legal ceiling that reserves $1 for every other open slot.
+discretionary dollar across that completion value. Maximum bids use 1.8 times that
+allocation: a ceiling is one of many mutually exclusive limits, not expected spend, and
+purchases normally close below it. Fixed-seed full-auction comparisons selected 1.8x
+because lower ceilings stranded cash while higher ceilings reduced final expected-lineup
+value. Every bid remains capped by the hard legal ceiling that reserves $1 for every other
+open slot.
 
 The FantasyPros 12-team, $200 curve supplies only the field's dollar scale. Each opponent
 maps its inferred provider order onto that curve, with roster depth, remaining budget,
@@ -84,11 +92,12 @@ gap.
 
 The ranker also rolls out 40 complete auctions. Nomination order, cold-start source
 assignments, and opponent evaluation noise vary per rollout. Our policy repeatedly
-revalues the remaining completion and bids projection-valued dollars; it is a practical
-sequential policy, not a clairvoyant global optimizer. Each player's 10th–90th percentile
-closing-price range and the fraction of rollouts in which we acquire him drive the
-**Pursue** list. This directly represents the chance that a later bargain is gone or no
-longer cheap.
+revalues the remaining completion whenever a purchase changes it and bids
+projection-valued dollars; it is a practical sequential policy, not a clairvoyant global
+optimizer. Each player's 10th–90th percentile closing-price range and the fraction of
+rollouts in which we acquire him drive the **Pursue** list. Rollout diagnostics include
+unused budget, nominal starter points, the expected-lineup value added by useful depth,
+and starter/bench roles on a representative final roster.
 
 Every simulated purchase preserves enough slots to fill the dedicated starter groups.
 The model also refuses additions beyond two players over its plausible completed-roster
@@ -103,8 +112,8 @@ still needed plus the same 72-player waiver buffer. Drafted players outside that
 horizon still count on their roster and against their team's budget.
 
 The published board remains deterministic because the rollouts use a fixed seed. On the
-current 480-player source pool, pricing plus 40 complete rollouts takes roughly ten
-seconds on a single CPU; the network-bound full refresh can still be slower.
+current 480-player source pool, pricing plus 40 complete rollouts takes roughly 40 seconds
+on a single CPU; the network-bound full refresh can still be slower.
 
 ## Components
 

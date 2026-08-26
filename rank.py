@@ -105,7 +105,14 @@ def main(argv: list[str] | None = None) -> int:
         print(
             f"simulation: {simulation['completed']}/{simulation['simulations']} legal "
             f"auctions; my mean lineup {simulation['my_projected_lineup_points']['mean']}, "
-            f"mean spend ${simulation['my_spend']['mean']}",
+            f"mean spend ${simulation['my_spend']['mean']}, mean unused "
+            f"${simulation['my_unused_budget']['mean']}",
+            file=sys.stderr,
+        )
+        print(
+            f"roster shape: nominal starters "
+            f"{simulation['my_nominal_starter_points']['mean']} points; useful depth adds "
+            f"{simulation['my_depth_lineup_points']['mean']} expected-lineup points",
             file=sys.stderr,
         )
         print("pursue:", file=sys.stderr)
