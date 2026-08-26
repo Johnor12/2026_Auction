@@ -26,39 +26,58 @@ import paths
 TIMEOUT_SECONDS = 30
 USER_AGENT = "dynasty-data-source-investigator/0.1"
 
-# The league is 12-team, superflex, half PPR, no TE premium. Providers expose
-# different subsets of those settings; the exact format requested from each one is
-# carried into rankings.json.
+# The league is a 12-team, $200-budget auction redraft: superflex, 0.5 PPR, no TE
+# premium. Each entry asks its provider for the closest format it publishes; the exact
+# format served is carried into rankings.json so a mismatch is never silent.
 SOURCES = {
+    "fantasypros_ecr": {
+        "name": "FantasyPros ECR",
+        "url": "https://www.fantasypros.com/nfl/rankings/half-point-ppr-superflex-cheatsheets.php",
+        "file": "fantasypros_ecr.html",
+        "format": "redraft superflex, half PPR expert consensus draft board; team count not a setting",
+    },
+    "fantasypros_auction": {
+        "name": "FantasyPros auction values",
+        "url": (
+            "https://draftwizard.fantasypros.com/auction/fp_nfl.jsp?"
+            "scoring=HALF&teams=12&tb=200&QB=2&RB=2&WR=3&TE=1&FLEX=1&K=0&DST=0&BN=5"
+        ),
+        "file": "fantasypros_auction.html",
+        "format": (
+            "12-team $200 half-PPR auction values (value = dollars) for a 2QB/2RB/3WR/1TE/"
+            "1FLEX/5BN roster; the calculator has no superflex slot, so a second QB starter "
+            "stands in for it"
+        ),
+    },
+    "keeptradecut": {
+        "name": "KeepTradeCut",
+        "url": "https://keeptradecut.com/fantasy-rankings?filters=QB%7CWR%7CRB%7CTE&format=2",
+        "file": "keeptradecut.html",
+        "format": "redraft superflex crowd values; KTC states 12 teams, 0.5 PPR, no TE premium",
+    },
     "fantasycalc": {
         "name": "FantasyCalc",
         "url": (
             "https://api.fantasycalc.com/values/current?"
-            "isDynasty=true&numQbs=2&numTeams=12&ppr=0.5&includeAdp=true"
+            "isDynasty=false&numQbs=2&numTeams=12&ppr=0.5&includeAdp=true"
         ),
         "file": "fantasycalc.json",
-        "format": "12-team dynasty superflex, 0.5 PPR; no TEP option in the public API",
+        "format": "12-team redraft superflex, 0.5 PPR trade values",
     },
-    "keeptradecut": {
-        "name": "KeepTradeCut",
+    "sleeper_adp": {
+        "name": "Sleeper ADP",
         "url": (
-            "https://keeptradecut.com/dynasty-rankings?"
-            "filters=QB%7CWR%7CRB%7CTE&format=2&page=0"
+            "https://api.sleeper.com/projections/nfl/2026?season_type=regular"
+            "&position[]=QB&position[]=RB&position[]=WR&position[]=TE&order_by=adp_2qb"
         ),
-        "file": "keeptradecut.html",
-        "format": "dynasty superflex, 0.5 PPR, TE+ (this league has no TEP)",
+        "file": "sleeper_projections.json",
+        "format": "Sleeper's ADP across its 2QB/superflex leagues, as this draft room shows it (value = ADP)",
     },
-    "dynastynerds": {
-        "name": "Dynasty Nerds",
-        "url": "https://www.dynastynerds.com/dynasty-rankings/sf-tep/",
-        "file": "dynastynerds.html",
-        "format": "dynasty superflex TE premium consensus (this league has no TEP)",
-    },
-    "fantasypros": {
-        "name": "FantasyPros ECR",
-        "url": "https://www.fantasypros.com/nfl/rankings/dynasty-superflex.php",
-        "file": "fantasypros.html",
-        "format": "dynasty superflex PPR expert consensus; no TEP",
+    "ffcalculator": {
+        "name": "FFCalculator ADP",
+        "url": "https://fantasyfootballcalculator.com/api/v1/adp/2qb?teams=12&year=2026",
+        "file": "ffcalculator.json",
+        "format": "12-team 2QB mock-draft ADP from FantasyFootballCalculator (value = ADP)",
     },
 }
 

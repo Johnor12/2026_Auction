@@ -11,7 +11,7 @@ snake.
 from __future__ import annotations
 
 SCHEME = "half_ppr_superflex"
-HORIZON = "3yr"
+HORIZON = "1yr"  # redraft: pool.json carries one season of points, so years 2-3 are zero
 POINTS_FIELD = f"points_{HORIZON}"  # the one value column in pool.json
 POSITIONS = ("QB", "RB", "WR", "TE")
 

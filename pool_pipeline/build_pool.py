@@ -1,395 +1,249 @@
 #!/usr/bin/env python3
-"""Cut projections.json down to this league's draft pool: one row, one value column.
+"""Build pool.json: FantasyPros season projections, scored for this league, keyed to Sleeper.
 
-Stage 2 of the build. ``parse_projections.py`` produces the full provider export —
-900 players x 8 scoring schemes x 4 horizons, ~2.9 MB, most of it irrelevant to a
-12-team superflex dynasty draft. This narrows it to what a draft board actually
-consumes and drops everything else:
+    data/FantasyPros_Fantasy_Football_Projections_{QB,RB,WR,TE}.csv
+    data/sleeper_players.json                                     ->  ../pool.json
 
-    900 players  ->  QB/RB/WR/TE only        (K and IDP have no roster slot)
-                 ->  a usable 3-year point total (~444 players; all of them kept)
+Sleeper hosts the draft, so its player ids are the pool's identity: every row is one
+Sleeper player (id, name, team, age, rookie flag) carrying FantasyPros' projected stat
+line, scored under this league's settings. A projection row that does not join to
+exactly one Sleeper player at the same position is left out and reported — it cannot be
+drafted in the room, so it is not on the board. ``match_sleeper.py`` owns the join.
 
-    9 schemes x 4 horizons  ->  two columns: 3-year and 1-year points in this
-                                league's scoring
-    8 ADP columns           ->  one column: superflex ADP, as an overall pick number
+**Scoring** is applied here, from the raw stat columns, rather than copied from the
+export's FPTS column: FantasyPros scores an interception -1 where this league scores -2
+(the rest of the export's half-PPR setting already agrees). ``SCORING`` mirrors the
+league's Sleeper settings; two-point conversions are not projected and are ignored.
+``--report`` recomputes FPTS under FantasyPros' own weights as a check that the column
+layout is being read correctly.
 
-**Scoring.** The league is 0.5/rec for every position with no tight end premium, in
-superflex. Draftsharks publishes that scheme directly, so every position copies its
-``half_ppr`` column; nothing is computed. The 1QB family is used because point totals
-cannot depend on roster settings and that family is the internally consistent one.
-The league's -2 per interception is not a published column, so QB points carry the
-provider's own interception assumption; ``--report`` checks the copy is exact.
+**Positions** come from the file a row sits in and must agree with Sleeper's. That is
+what separates same-named players, and it is why FantasyPros' fullback rows drop:
+Sleeper lists them at TE.
 
-Points are the only value columns kept — the 3-year total the ranker sorts on, and the
-1-year total whose gap against it is the provider's implied growth (the ranker prices
-bench upside off the years-2-3 pace). 3D value is deliberately not carried over: it
-is a provider-scaled ordinal (best player pinned at 100, ~half the league negative)
-that already bakes in someone else's roster assumptions, is not in points, and so
-cannot enter a points-based expected-lineup value — which is how ``rank.py`` prices
-the pool.
-
-**ADP** is the superflex ADP, copied. All four superflex scoring styles are identical
-here (the source's ADP responds only to 1QB vs superflex), so there is no TE-premium
-signal to transfer and none is invented. The source encodes it as round.pick for a
-12-team draft — "2.03" is round 2 pick 3, not a decimal — which is both a different
-league size than ours and a trap for anything that sorts numerically, so it is decoded
-to an integer overall pick. Its deep tail is provider noise: 48 pool players sit past
-round 45 of a 12-team draft, so a pick number in the thousands means "effectively
-undrafted", not a real slot.
-
-**Ranking.** The pool is ordered by 3-year points descending, ties broken by the
-provider's dynasty rank. So the emitted ``rank`` is verifiable from the emitted
-``points_3yr`` column and the file references no quantity it does not contain. Every
-eligible player is kept: an earlier top-350 cut dropped players the market drafts —
-the retirement-discounted Aaron Rodgers (3yr 166 but 1yr 258, eligible rank 355) and
-near-miss RBs like Najee Harris and DJ Giddens — to save ~90 rows nobody needed saved.
-
-**Cleanups applied.** Players with a 0 or missing 3-year projection are dropped rather
-than ranked last (the source uses 0 where a null belongs) — except the ones in
-``SYNTHETIC_PROJECTIONS``, whose zeroes are a provider hole and get overwritten first.
-A career-edge veteran can publish a 1-year projection above his 3-year total (Aaron
-Rodgers 2026: 258 vs 166 — the source discounts future seasons by retirement odds, its
-season projection does not). Downstream prices years 2-3 as ``points_3yr -
-points_1yr``, and a negative future season is not a real quantity, so the 3-year cell
-is raised to the 1-year value: a win-now season and zeroed future seasons. The 21 teamless players
-carry ``bye_week: 18``, a sentinel — real byes run weeks 5-14 — so their bye is
-nulled. Stale printed ranks, undocumented percent_low/percent_high, hidden_row,
-analyst comments and profile paths are not carried: recover them from projections.json,
-which this script only reads.
+Zero-point rows are FantasyPros' "no projection" and are dropped. Every other joined
+player is kept; there is no rank cut. The pool carries one season of points because the
+league is a redraft; nothing multi-year is invented.
 
 Usage:
-    uv run build_pool.py [projections.json] [-o pool.json] [--limit 350] [--report]
+    uv run pool_pipeline/build_pool.py            # -> pool.json
+    uv run pool_pipeline/build_pool.py --report   # + scoring check, join tiers, misses
 """
 
 from __future__ import annotations
 
 import argparse
 import collections
+import csv
 import json
-import math
 import sys
 from pathlib import Path
 
+import fetch_sleeper
+import match_sleeper
 import paths
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-SCHEME = "half_ppr_superflex"
-HORIZON = "3yr"
-POINTS_FIELD = f"points_{HORIZON}"
-
-#: Roster slots exist for these only; K and IDP (DB/DL/LB) are dropped whole.
 POSITIONS = ("QB", "RB", "WR", "TE")
+SEASON = 2026
 
-#: Effectively no cut: only ~444 of the 900 source rows are offensive players with a
-#: usable projection, and the old 350 cut dropped market-drafted players (see docstring).
-RANK_LIMIT = 1000
-
-#: The published 1QB column that prices this league's reception rate for every position.
-POINTS_COLUMN = "half_ppr"
-
-#: ADP is roster-format dependent only. These four are identical in this export;
-#: ADP_COLUMN is the one read, the rest are cross-checked by --report.
-ADP_COLUMN = "half_ppr_superflex"
-ADP_FAMILY = (
-    "standard_superflex",
-    "half_ppr_superflex",
-    "ppr_superflex",
-    "te_premium_superflex",
-)
-
-#: The source's ADP is round.pick for a 12-team draft. That is the provider's format,
-#: not this league's size, and it is decoded rather than reinterpreted.
-TEAMS_PER_ROUND = 12
-PLAUSIBLE_ROUNDS = 45  # ~490 ranked players / 12 per round; beyond this is tail noise
-
-#: Sentinels the source uses for unsigned players: no team, so no real bye week.
-NO_TEAM = frozenset({"UNS", "RK"})
-PLACEHOLDER_BYE = 18
-
-#: Projections invented for players the source zero-fills but the market drafts.
-#: Justin Fields (superflex ADP 214) is a Draftsharks data hole: 0 at every horizon.
-#: Basis: median Draftsharks points of the QBs ranked within +-3 of him on each of the
-#: four boards in data_source_investigator/data/rankings.json (FantasyCalc QB42,
-#: KeepTradeCut QB43, DynastyNerds QB42, FantasyPros QB41; comps Cousins, Allar,
-#: Richardson, Klubnik, Watson, Milroe, ...). Applied only while the source cell the
-#: build reads is still 0/missing, so a real projection supersedes this on arrival.
-SYNTHETIC_PROJECTIONS = {
-    10754: {"name": "Justin Fields", "3yr": 388, "1yr": 28},
+#: This league's scoring (Sleeper league 1396606685107200000): 0.5 PPR, no TE bonus.
+SCORING = {
+    "pass_yd": 0.04,
+    "pass_td": 4.0,
+    "pass_int": -2.0,
+    "rush_yd": 0.1,
+    "rush_td": 6.0,
+    "rec": 0.5,
+    "rec_yd": 0.1,
+    "rec_td": 6.0,
+    "fum_lost": -2.0,
 }
 
-#: Players the source omits entirely but this league's market drafts. Same comp-median
-#: basis as SYNTHETIC_PROJECTIONS, except the whole row is invented, not just the
-#: points: Mac Jones (drafted pick 182 of this draft) sits QB35-39 on all four
-#: investigator boards; his cells are the medians over the QBs within +-3 of him on
-#: each board (Tua, McCarthy, Brissett, Rodgers, Watson, Cousins, Geno, Beck, Allar,
-#: Richardson, Milroe, Klubnik): 3yr 406, 1yr 54, superflex ADP overall 222 -> 19.06
-#: in the source's 12-team round.pick encoding. A QB's points are reception-blind, so
-#: every scoring column carries the same number. Skipped once the source publishes a
-#: real row under the same name and position.
-_MAC_JONES_SCHEMES = [*ADP_FAMILY, "standard", "half_ppr", "ppr", "te_premium"]
-SYNTHETIC_PLAYERS = [
-    {
-        "player_id": 900001,  # out-of-band: real source ids stay far below 900000
-        "name": "Mac Jones",
-        "position": "QB",
-        "team": "SF",
-        "age": 27.9,
-        "bye_week": 8,
-        "is_rookie": False,
-        "rank_by_3d_value": None,
-        "projections": {
-            "3yr": {scheme: 406 for scheme in _MAC_JONES_SCHEMES},
-            "1yr": {scheme: 54 for scheme in _MAC_JONES_SCHEMES},
-        },
-        "adp": {scheme: 19.06 for scheme in ADP_FAMILY},
-    },
-]
+#: What the export's own FPTS column was computed with: the same, at -1 per interception.
+FANTASYPROS_SCORING = {**SCORING, "pass_int": -1.0}
+
+#: Each export's header, and the stat every column after Player and Team carries. The
+#: exports reuse ATT/YDS/TDS across passing, rushing and receiving, so columns are read
+#: by position rather than by name, and a changed header fails loudly.
+LAYOUTS = {
+    "QB": (
+        ["Player", "Team", "ATT", "CMP", "YDS", "TDS", "INTS", "ATT", "YDS", "TDS", "FL", "FPTS"],
+        ("pass_att", "pass_cmp", "pass_yd", "pass_td", "pass_int", "rush_att", "rush_yd", "rush_td", "fum_lost", "fpts"),
+    ),
+    "RB": (
+        ["Player", "Team", "ATT", "YDS", "TDS", "REC", "YDS", "TDS", "FL", "FPTS"],
+        ("rush_att", "rush_yd", "rush_td", "rec", "rec_yd", "rec_td", "fum_lost", "fpts"),
+    ),
+    "WR": (
+        ["Player", "Team", "REC", "YDS", "TDS", "ATT", "YDS", "TDS", "FL", "FPTS"],
+        ("rec", "rec_yd", "rec_td", "rush_att", "rush_yd", "rush_td", "fum_lost", "fpts"),
+    ),
+    "TE": (
+        ["Player", "Team", "REC", "YDS", "TDS", "FL", "FPTS"],
+        ("rec", "rec_yd", "rec_td", "fum_lost", "fpts"),
+    ),
+}
+
+#: Sleeper ids are stable, so an old dump only misses players added since. Warn, don't fail.
+STALE_AFTER_DAYS = 14
 
 FIELD_DEFINITIONS = {
-    "rank": (
-        f"Pool rank, 1..N, by {POINTS_FIELD} descending (ties broken by the "
-        "provider's dynasty rank). Unique and gap-free."
-    ),
+    "rank": "Pool rank, 1..N, by points_1yr descending (ties broken by name). Unique and gap-free.",
     "positional_rank": "Rank within position under the same ordering.",
-    "player_id": "Provider player id. The only unique key — names collide.",
-    "name": "Player name.",
-    "position": "QB, RB, WR or TE.",
-    "team": "NFL team abbreviation; 'UNS'/'RK' mean unsigned.",
-    "age": "Age in years.",
-    "bye_week": "Team bye week; null for unsigned players.",
-    "is_rookie": "True for 2026 rookies.",
-    POINTS_FIELD: (
-        "Three-year projected fantasy points under this league's scoring: 0.5/rec, no "
-        "TE premium. Copied from the provider's half_ppr column. Never below points_1yr: "
-        "a retirement-discounted 3yr cell is raised to the 1yr value (see 'adjustments')."
+    "player_id": "Sleeper's player id as an integer; the pool's unique key.",
+    "sleeper_id": (
+        "The same id as the string Sleeper's API uses; joins draft.json and the "
+        "investigator's boards."
     ),
+    "name": "Player name as Sleeper prints it.",
+    "position": "QB, RB, WR or TE: FantasyPros' file, which agrees with Sleeper's listing.",
+    "team": "NFL team abbreviation per Sleeper; null when unsigned.",
+    "age": "Age in years per Sleeper; null when Sleeper does not know it.",
+    "is_rookie": f"True for {SEASON} rookies (Sleeper years_exp == 0).",
     "points_1yr": (
-        "One-year projected points, same scoring and same source columns. The gap "
-        f"between this and {POINTS_FIELD} is the provider's implied growth: the "
-        "ranker prices bench upside off the years-2-3 pace, (points_3yr - "
-        "points_1yr) / 2. A genuine 0 (e.g. a stashed rookie) is kept as 0."
-    ),
-    "adp": (
-        "Superflex ADP as an overall pick number in the source's 12-team draft "
-        f"(its round.pick value decoded: 2.03 -> 15). Past pick "
-        f"{PLAUSIBLE_ROUNDS * TEAMS_PER_ROUND} the source's tail is noise, i.e. "
-        "'effectively undrafted' rather than a real slot."
+        f"Projected {SEASON} fantasy points: FantasyPros' consensus stat line scored under "
+        "this league's settings (see 'scoring')."
     ),
 }
 
 
 # ---------------------------------------------------------------------------
-# Extraction
+# Projections
 # ---------------------------------------------------------------------------
 
 
-def points_of(record: dict, horizon: str = HORIZON) -> int | None:
-    """This league's point total at a horizon: a copy of the column that prices the rate."""
-    return record["projections"][horizon].get(POINTS_COLUMN)
-
-
-def decode_adp(value: float, teams: int = TEAMS_PER_ROUND) -> int:
-    """``2.03`` (round 2, pick 3) -> overall pick 15."""
-    rnd = int(value)
-    return (rnd - 1) * teams + round((value - rnd) * 100)
-
-
-def adp_of(record: dict) -> int | None:
-    value = record["adp"].get(ADP_COLUMN)
-    return None if value is None else decode_adp(value)
-
-
-def dynasty_rank(record: dict) -> float:
-    """The provider's own overall rank, used only to break point ties."""
-    rank = record.get("rank_by_3d_value")
-    return math.inf if rank is None else rank
-
-
-def apply_synthetic(records: list[dict]) -> list[str]:
-    """Fill SYNTHETIC_PROJECTIONS into still-zero source cells. Returns audit notes."""
-    by_id = {record["player_id"]: record for record in records}
-    notes = []
-    for player_id, synth in SYNTHETIC_PROJECTIONS.items():
-        record = by_id.get(player_id)
-        if record is None:
-            notes.append(f"{synth['name']} ({player_id}): not in source, skipped")
-            continue
-        column = POINTS_COLUMN
-        if record["projections"]["3yr"].get(column):
-            notes.append(f"{synth['name']}: source now has a real projection, skipped")
-            continue
-        record["projections"]["3yr"][column] = synth["3yr"]
-        record["projections"]["1yr"][column] = synth["1yr"]
-        notes.append(
-            f"{synth['name']}: {column} 3yr={synth['3yr']} 1yr={synth['1yr']} "
-            "(comp-median, see SYNTHETIC_PROJECTIONS)"
+def read_projections(position: str, path: Path) -> list[dict]:
+    """One FantasyPros export -> rows of {name, team, position, stats}."""
+    header, stat_names = LAYOUTS[position]
+    with path.open(newline="", encoding="utf-8-sig") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or rows[0] != header:
+        raise ValueError(f"{path.name}: header {rows[0] if rows else None} is not {header}")
+    out = []
+    for row in rows[1:]:
+        if len(row) != len(header):
+            continue  # the export pads with a blank spacer row and trailing empty lines
+        out.append(
+            {
+                "name": row[0].strip(),
+                "team": row[1].strip(),
+                "position": position,
+                "stats": dict(zip(stat_names, (float(cell) for cell in row[2:]))),
+            }
         )
-    return notes
+    return out
 
 
-def add_synthetic_players(records: list[dict]) -> list[str]:
-    """Append SYNTHETIC_PLAYERS the source still lacks. Returns audit notes."""
-    present = {(record["name"].casefold(), record["position"]) for record in records}
-    notes = []
-    for synth in SYNTHETIC_PLAYERS:
-        if (synth["name"].casefold(), synth["position"]) in present:
-            notes.append(f"{synth['name']}: source now lists him, synthetic row skipped")
-            continue
-        records.append(synth)
-        notes.append(
-            f"{synth['name']}: fully synthetic row, absent from source "
-            "(comp-median, see SYNTHETIC_PLAYERS)"
-        )
-    return notes
-
-
-def zero_negative_futures(records: list[dict]) -> list[str]:
-    """Raise a 3-year cell that sits below the 1-year one (see docstring). Notes what.
-
-    Only a real 3-year projection is repaired — a 0 stays 0, meaning "no data", and the
-    player is dropped by the usable-projection filter as before.
-    """
-    notes = []
-    for record in records:
-        if record.get("position") not in POSITIONS:
-            continue  # K/IDP are full of these; they never reach the pool
-        column = POINTS_COLUMN
-        horizons = record["projections"]
-        p3, p1 = horizons["3yr"].get(column), horizons["1yr"].get(column)
-        if p3 and p1 and p1 > p3:
-            horizons["3yr"][column] = p1
-            notes.append(
-                f"{record['name']}: {column} 3yr {p3} -> {p1} (1yr exceeded the "
-                "retirement-discounted 3yr; future seasons zeroed)"
-            )
-    return notes
+def score(stats: dict, weights: dict = SCORING) -> float:
+    return round(sum(weight * stats.get(stat, 0.0) for stat, weight in weights.items()), 1)
 
 
 # ---------------------------------------------------------------------------
-# Selection
+# Join and rows
 # ---------------------------------------------------------------------------
 
 
-def select(records: list[dict], limit: int = RANK_LIMIT) -> tuple[list[dict], dict]:
-    """Filter to the relevant pool and order it. Returns (kept records, stats).
+def join(rows: list[dict], index: match_sleeper.SleeperIndex) -> tuple[list[dict], dict]:
+    """Attach each row's Sleeper player. Returns (joined rows, join diagnostics)."""
+    joined: list[dict] = []
+    tiers: collections.Counter[str] = collections.Counter()
+    joins: dict[str, list] = {"name_without_suffix": [], "last_name_team": []}
+    unmatched: list[dict] = []
+    ambiguous: list[tuple[dict, str, list[dict]]] = []
 
-    Three cuts, in order: position, then a usable point total, then the rank limit.
-    The rank cut has to come last — it is defined on the points column, so it is only
-    meaningful once the rows without one are gone.
-    """
-    dropped_position: collections.Counter[str] = collections.Counter()
-    unusable: list[str] = []
-    eligible: list[dict] = []
-
-    for record in records:
-        position = record.get("position")
-        if position not in POSITIONS:
-            dropped_position[position or "?"] += 1
+    for row in rows:
+        player, tier, clash = match_sleeper.match(row, index)
+        if player is None:
+            if clash:
+                ambiguous.append((row, tier, clash))
+            else:
+                unmatched.append(row)
             continue
-        points = points_of(record)
-        if not points or points <= 0:
-            unusable.append(record["name"])
-            continue
-        eligible.append(record)
+        tiers[tier] += 1
+        if tier in joins:
+            joins[tier].append((row, player))
+        joined.append({**row, "sleeper": player})
 
-    eligible.sort(key=lambda r: (-points_of(r), dynasty_rank(r), r["player_id"]))
-    kept, cut = eligible[:limit], eligible[limit:]
-
-    by_dynasty = sorted(eligible, key=lambda r: (dynasty_rank(r), r["player_id"]))[:limit]
-    kept_ids = {record["player_id"] for record in kept}
-
-    stats = {
-        "dropped_position": dict(dropped_position.most_common()),
-        "dropped_unusable": sorted(unusable),
-        "right_position": len(eligible) + len(unusable),
-        "eligible": len(eligible),
-        "cut_by_rank": len(cut),
-        "cut_at_points": points_of(kept[-1]) if kept else None,
-        "best_points_cut": points_of(cut[0]) if cut else None,
-        "dynasty_cut_would_swap": [
-            (record["name"], record["position"], points_of(record))
-            for record in by_dynasty
-            if record["player_id"] not in kept_ids
-        ],
+    ids = collections.Counter(row["sleeper"]["player_id"] for row in joined)
+    duplicates = sorted(player_id for player_id, count in ids.items() if count > 1)
+    return joined, {
+        "by_tier": dict(tiers),
+        "joins": joins,
+        "unmatched": unmatched,
+        "ambiguous": ambiguous,
+        "duplicates": duplicates,
     }
-    return kept, stats
 
 
-def build_rows(kept: list[dict]) -> list[dict]:
-    """One flat, minimal record per player, in pool order."""
+def build_rows(joined: list[dict]) -> list[dict]:
+    """One flat record per player, in pool order."""
+    joined.sort(
+        key=lambda row: (
+            -row["points"],
+            match_sleeper.full_name_of(row["sleeper"]),
+            int(row["sleeper"]["player_id"]),
+        )
+    )
     seen: collections.Counter[str] = collections.Counter()
     rows = []
-    for rank, record in enumerate(kept, start=1):
-        position = record["position"]
-        seen[position] += 1
-        team = record.get("team")
-        bye = record.get("bye_week")
+    for rank, row in enumerate(joined, start=1):
+        player = row["sleeper"]
+        seen[row["position"]] += 1
         rows.append(
             {
                 "rank": rank,
-                "positional_rank": seen[position],
-                "player_id": record["player_id"],
-                "name": record["name"],
-                "position": position,
-                "team": team,
-                "age": record.get("age"),
-                "bye_week": None if team in NO_TEAM or bye == PLACEHOLDER_BYE else bye,
-                "is_rookie": bool(record.get("is_rookie")),
-                POINTS_FIELD: points_of(record),
-                # 0 when the 1yr cell is missing: the source uses 0 for "no season", and
-                # a player kept by the 3yr filter with no 1yr number is projected to sit.
-                "points_1yr": points_of(record, "1yr") or 0,
-                "adp": adp_of(record),
+                "positional_rank": seen[row["position"]],
+                "player_id": int(player["player_id"]),
+                "sleeper_id": str(player["player_id"]),
+                "name": match_sleeper.full_name_of(player),
+                "position": row["position"],
+                "team": player.get("team"),
+                "age": player.get("age"),
+                "is_rookie": player.get("years_exp") == 0,
+                "points_1yr": row["points"],
             }
         )
     return rows
 
 
 def build_document(
-    source: dict, source_path: Path, rows: list[dict], stats: dict, adjustments: list[str]
+    rows: list[dict],
+    zero_projection: int,
+    diagnostics: dict,
+    index: match_sleeper.SleeperIndex,
+    meta: dict | None,
 ) -> dict:
-    """The output file: a short provenance header plus the rows."""
     return {
-        "source_file": source_path.name,
-        "source_player_count": source.get("player_count", len(source["players"])),
-        "scoring_scheme": {
-            "name": SCHEME,
-            "description": (
-                "0.5 points per reception for every position, no tight end premium, "
-                "superflex roster format."
-            ),
-            "reception_points": 0.5,
-            "points_copied_from": POINTS_COLUMN,
-            "adp_copied_from": ADP_COLUMN,
-        },
-        "horizon": HORIZON,
+        "source": (
+            "FantasyPros consensus season projections, one CSV export per position, "
+            "scored under this league's settings"
+        ),
+        "source_files": [path.name for path in paths.PROJECTIONS_CSV.values()],
+        "season": SEASON,
+        "scoring": SCORING,
         "positions": list(POSITIONS),
         "player_count": len(rows),
         "excluded": {
-            "by_position": stats["dropped_position"],
-            "no_usable_projection": len(stats["dropped_unusable"]),
-            "below_rank_limit": stats["cut_by_rank"],
+            "zero_projection": zero_projection,
+            "no_sleeper_match": [
+                {
+                    "name": row["name"],
+                    "position": row["position"],
+                    "team": row["team"],
+                    "points_1yr": row["points"],
+                }
+                for row in diagnostics["unmatched"]
+            ],
         },
-        "adjustments": adjustments,
+        "sleeper": {
+            "source": (meta or {}).get("url", fetch_sleeper.URL),
+            "fetched_at": (meta or {}).get("fetched_at"),
+            "dump_player_count": index.player_count,
+            "matched_by": diagnostics["by_tier"],
+        },
         "fields": FIELD_DEFINITIONS,
         "players": rows,
     }
-
-
-def check_sources(document: dict) -> None:
-    """Fail loudly if a column this reads is gone. Only the ones read are required —
-    the rest of ADP_FAMILY is a cross-check, and --report just compares fewer columns."""
-    published = set(document.get("scoring_schemes") or [])
-    required = {POINTS_COLUMN, ADP_COLUMN}
-    missing = sorted(required - published)
-    if missing:
-        raise ValueError(
-            f"source scheme(s) {', '.join(missing)} absent from scoring_schemes — "
-            "re-run parse_projections.py"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -397,129 +251,106 @@ def check_sources(document: dict) -> None:
 # ---------------------------------------------------------------------------
 
 
-def report(source: dict, kept: list[dict], rows: list[dict], stats: dict) -> None:
+def report(
+    rows: list[dict],
+    projected: list[dict],
+    pool: list[dict],
+    diagnostics: dict,
+    index: match_sleeper.SleeperIndex,
+    meta: dict | None,
+) -> None:
     out = sys.stderr
-    total = len(source["players"])
-    dropped = stats["dropped_position"]
-
-    print(f"\ninput: {total} players", file=out)
-    print(
-        f"  positions {'/'.join(POSITIONS)}: kept {stats['right_position']}, "
-        f"dropped {sum(dropped.values())} ("
-        + ", ".join(f"{pos} {n}" for pos, n in dropped.items())
-        + ")",
-        file=out,
-    )
-    unusable = stats["dropped_unusable"]
-    print(
-        f"  usable {HORIZON} projection: kept {stats['eligible']}, dropped {len(unusable)}"
-        + (f" (0 or missing: {', '.join(unusable[:4])}...)" if unusable else ""),
-        file=out,
-    )
-    print(
-        f"  top {len(rows)} by {POINTS_FIELD}: dropped {stats['cut_by_rank']} "
-        f"(cut at {stats['cut_at_points']} pts"
-        + (f"; best excluded {stats['best_points_cut']})" if stats["cut_by_rank"] else ")"),
-        file=out,
-    )
     counts = collections.Counter(row["position"] for row in rows)
     print(
-        "pool: " + ", ".join(f"{pos} {counts[pos]}" for pos in POSITIONS)
-        + f" = {len(rows)}, {sum(row['is_rookie'] for row in rows)} rookies",
+        "\ninput: " + ", ".join(f"{pos} {counts[pos]}" for pos in POSITIONS)
+        + f" = {len(rows)} rows; {len(rows) - len(projected)} with no projection dropped",
         file=out,
     )
 
-    # -- points: is the copied column really this league's scoring? --------
-    print(f"\n{POINTS_FIELD}  [every position -> {POINTS_COLUMN} (0.5/rec)]", file=out)
-
-    def flat(record: dict) -> dict:
-        """The record's source cells for this horizon, all schemes."""
-        return record["projections"][HORIZON]
-
-    copied = sum(
-        1 for row, r in zip(rows, kept) if row[POINTS_FIELD] == flat(r)[POINTS_COLUMN]
+    # -- scoring: is the column layout read right, and what does -2/INT change? ----
+    gap, worst = max(
+        (abs(score(row["stats"], FANTASYPROS_SCORING) - row["stats"]["fpts"]), row["name"])
+        for row in projected
     )
-    print(f"  emitted == source column: {copied}/{len(rows)} — exact", file=out)
-    one_ok = sum(
-        1 for row, r in zip(rows, kept) if row["points_1yr"] == (points_of(r, "1yr") or 0)
-    )
-    bounded = sum(1 for row in rows if row["points_1yr"] <= row[POINTS_FIELD])
     print(
-        f"  points_1yr: emitted == source column for {one_ok}/{len(rows)}; "
-        f"<= {POINTS_FIELD} for {bounded}/{len(rows)}",
+        f"scoring check: FPTS recomputed under FantasyPros' weights (-1/INT) is within "
+        f"{gap:.2f} of the export's own column for every row (worst {worst}; rounding)",
+        file=out,
+    )
+    qb_delta = sum(
+        row["points"] - row["stats"]["fpts"] for row in projected if row["position"] == "QB"
+    )
+    other_gap = max(
+        abs(row["points"] - row["stats"]["fpts"])
+        for row in projected
+        if row["position"] != "QB"
+    )
+    print(
+        f"  league scoring (-2/INT) moves the {counts['QB']} QBs by {qb_delta:+.1f} points in "
+        f"total; RB/WR/TE agree with FPTS to within {other_gap:.2f}",
         file=out,
     )
 
-    # -- adp ---------------------------------------------------------------
+    # -- join --------------------------------------------------------------
+    age = fetch_sleeper.age_hours(meta)
     print(
-        f"\nadp  [{ADP_COLUMN}, round.pick -> overall pick, {TEAMS_PER_ROUND}-team source]",
+        f"\nsleeper: dump {index.player_count} players, {index.considered} at a pool position"
+        + (f", fetched {age / 24:.1f} days ago" if age is not None else ""),
         file=out,
     )
-    family = [s for s in ADP_FAMILY if s in (source.get("scoring_schemes") or [])]
-    agree = sum(1 for r in kept if len({r["adp"][s] for s in family}) == 1)
+    by_tier = diagnostics["by_tier"]
     print(
-        f"  all {len(family)} superflex styles identical for {agree}/{len(kept)} — "
-        "no TE-premium signal in the source ADP to transfer",
+        f"  matched {sum(by_tier.values())}/{len(projected)}: "
+        + ", ".join(f"{tier} {count}" for tier, count in by_tier.items()),
         file=out,
     )
-    picks = [row["adp"] for row in rows if row["adp"] is not None]
-    print(
-        f"  present {len(picks)}/{len(rows)}, distinct {len(set(picks))}"
-        + ("" if len(set(picks)) == len(picks) else "  <- COLLISIONS"),
-        file=out,
-    )
-    roundtrip = sum(1 for r in kept if decode_adp(r["adp"][ADP_COLUMN]) == adp_of(r))
-    tail = [pick for pick in picks if pick > PLAUSIBLE_ROUNDS * TEAMS_PER_ROUND]
-    print(
-        f"  decode round-trips for {roundtrip}/{len(kept)}; range "
-        f"{min(picks, default=0)}..{max(picks, default=0)}, {len(tail)} past round "
-        f"{PLAUSIBLE_ROUNDS} (provider tail noise, not a real slot)",
-        file=out,
-    )
+    suffix_joins = diagnostics["joins"]["name_without_suffix"]
+    print(f"\ntier 2 — suffix dropped ({len(suffix_joins)})", file=out)
+    for row, player in suffix_joins:
+        print(
+            f"  {row['name']:<24} -> {match_sleeper.full_name_of(player):<22} "
+            f"{player.get('position')} {player.get('team')} id={player['player_id']}",
+            file=out,
+        )
+    last_joins = diagnostics["joins"]["last_name_team"]
+    print(f"\ntier 3 — last name + team, first names differ ({len(last_joins)})", file=out)
+    for row, player in last_joins:
+        print(
+            f"  {row['name']:<24} ({row['position']} {row['team']}) -> "
+            f"{match_sleeper.full_name_of(player):<22} {player.get('position')} "
+            f"{player.get('team')} age {player.get('age')} id={player['player_id']}",
+            file=out,
+        )
+    unmatched = diagnostics["unmatched"]
+    print(f"\nunmatched ({len(unmatched)})", file=out)
+    for row in unmatched:
+        print(
+            f"  {row['name']:<24} {row['position']} {row['team']} {row['points']:>6} pts",
+            file=out,
+        )
 
-    # -- integrity ---------------------------------------------------------
-    print("\nintegrity", file=out)
-    ranks = [row["rank"] for row in rows]
-    ids = {row["player_id"] for row in rows}
-    ordered = all(
-        rows[i][POINTS_FIELD] >= rows[i + 1][POINTS_FIELD] for i in range(len(rows) - 1)
-    )
-    per_pos = collections.Counter()
-    positional_ok = True
-    for row in rows:
-        per_pos[row["position"]] += 1
-        positional_ok &= row["positional_rank"] == per_pos[row["position"]]
+    # -- pool --------------------------------------------------------------
+    per_pos = collections.Counter(row["position"] for row in pool)
     print(
-        f"  rank 1..{len(rows)} gap-free: {ranks == list(range(1, len(rows) + 1))}; "
-        f"unique player_ids: {len(ids) == len(rows)}; "
-        f"monotone in {POINTS_FIELD}: {ordered}; positional ranks consistent: {positional_ok}",
+        "\npool: " + ", ".join(f"{pos} {per_pos[pos]}" for pos in POSITIONS)
+        + f" = {len(pool)}, {sum(row['is_rookie'] for row in pool)} rookies; "
+        f"team known {sum(row['team'] is not None for row in pool)}/{len(pool)}, "
+        f"age known {sum(row['age'] is not None for row in pool)}/{len(pool)}",
         file=out,
     )
-    nulled = sum(1 for row, r in zip(rows, kept) if row["bye_week"] is None)
+    ranks = [row["rank"] for row in pool]
+    monotone = all(a["points_1yr"] >= b["points_1yr"] for a, b in zip(pool, pool[1:]))
     print(
-        f"  bye_week nulled for {nulled} unsigned players (source sentinel "
-        f"{PLACEHOLDER_BYE}); age/team present for all {len(rows)}",
+        f"integrity: rank 1..{len(pool)} gap-free: {ranks == list(range(1, len(pool) + 1))}; "
+        f"unique ids: {len({row['player_id'] for row in pool}) == len(pool)}; "
+        f"monotone in points_1yr: {monotone}; fields per player: {len(pool[0])}",
         file=out,
     )
-    swap = stats["dynasty_cut_would_swap"]
-    print(
-        f"  cutting on the provider's dynasty rank instead would swap {len(swap)} at the "
-        "boundary"
-        + (
-            ", e.g. " + ", ".join(f"{n} ({p}, {v} pts)" for n, p, v in swap[:3])
-            if swap
-            else ""
-        ),
-        file=out,
-    )
-    print(f"  fields per player: {len(rows[0])} ({', '.join(rows[0])})", file=out)
-
-    # -- spot check --------------------------------------------------------
     print("\ntop 5 and the last 2 in the pool", file=out)
-    for row in rows[:5] + rows[-2:]:
+    for row in pool[:5] + pool[-2:]:
         print(
             f"  {row['rank']:>3} {row['name']:<22} {row['position']}{row['positional_rank']:<3} "
-            f"{row[POINTS_FIELD]:>5} pts   adp {row['adp']}",
+            f"{row['points_1yr']:>6} pts  {row['team'] or '---'}  id={row['sleeper_id']}",
             file=out,
         )
     print(file=out)
@@ -534,52 +365,91 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    ap.add_argument("input", nargs="?", default=paths.PROJECTIONS_JSON, type=Path)
     ap.add_argument("-o", "--output", default=paths.POOL, type=Path)
     ap.add_argument(
-        "--limit", type=int, default=RANK_LIMIT, help=f"keep this many players (default {RANK_LIMIT})"
+        "--players",
+        default=paths.SLEEPER_PLAYERS,
+        type=Path,
+        help="the Sleeper dump (fetch_sleeper.py writes it)",
     )
     ap.add_argument("--report", action="store_true", help="print a validation summary to stderr")
     ap.add_argument("--indent", type=int, default=2, help="JSON indent; 0 for compact")
     args = ap.parse_args(argv)
 
-    if not args.input.is_file():
-        print(f"error: {args.input} not found", file=sys.stderr)
-        return 1
-    with args.input.open(encoding="utf-8") as handle:
-        source = json.load(handle)
-    if not source.get("players"):
-        print(f"error: no players in {args.input}", file=sys.stderr)
+    if not args.players.is_file():
+        print(
+            f"error: sleeper dump {paths.display(args.players)} not found — run "
+            "`uv run pool_pipeline/fetch_sleeper.py` (manual, ~14 MB)",
+            file=sys.stderr,
+        )
         return 1
 
+    rows: list[dict] = []
     try:
-        check_sources(source)
-        adjustments = apply_synthetic(source["players"])
-        adjustments += add_synthetic_players(source["players"])
-        adjustments += zero_negative_futures(source["players"])
-        kept, stats = select(source["players"], args.limit)
-    except (ValueError, KeyError) as exc:
+        for position, path in paths.PROJECTIONS_CSV.items():
+            rows.extend(read_projections(position, path))
+    except (OSError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
-    if not kept:
-        print("error: no players survived the filters", file=sys.stderr)
-        return 1
-    for note in adjustments:
-        print(f"adjusted: {note}", file=sys.stderr)
+    for row in rows:
+        row["points"] = score(row["stats"])
+    projected = [row for row in rows if row["points"] > 0]
 
-    rows = build_rows(kept)
-    document = build_document(source, args.input, rows, stats, adjustments)
+    with args.players.open(encoding="utf-8") as handle:
+        dump = json.load(handle)
+    meta = fetch_sleeper.load_meta(args.players.with_suffix(".meta.json"))
+    age = fetch_sleeper.age_hours(meta)
+    if age is None or age / 24 > STALE_AFTER_DAYS:
+        print(
+            "warning: sleeper dump is "
+            + ("of unknown age" if age is None else f"{age / 24:.0f} days old")
+            + "; players added since cannot match — re-run fetch_sleeper.py",
+            file=sys.stderr,
+        )
+    index = match_sleeper.SleeperIndex(dump)
+
+    joined, diagnostics = join(projected, index)
+    for row, tier, clash in diagnostics["ambiguous"]:
+        print(
+            f"error: {row['name']} ({row['position']} {row['team']}, {row['points']} pts) is "
+            f"ambiguous at tier {tier!r}: "
+            + ", ".join(
+                f"{match_sleeper.full_name_of(p)} ({p.get('position')} {p.get('team')} "
+                f"age {p.get('age')}, id={p['player_id']})"
+                for p in clash
+            ),
+            file=sys.stderr,
+        )
+    if diagnostics["duplicates"]:
+        print(
+            "error: sleeper id(s) matched more than one projection row: "
+            f"{diagnostics['duplicates']}",
+            file=sys.stderr,
+        )
+    if diagnostics["ambiguous"] or diagnostics["duplicates"]:
+        return 1
+    for row in diagnostics["unmatched"]:
+        print(
+            f"warning: no Sleeper {row['position']} named {row['name']} ({row['team']}, "
+            f"{row['points']} pts) — left out",
+            file=sys.stderr,
+        )
+
+    pool = build_rows(joined)
+    document = build_document(pool, len(rows) - len(projected), diagnostics, index, meta)
     with args.output.open("w", encoding="utf-8") as handle:
         json.dump(document, handle, indent=args.indent or None, ensure_ascii=False)
         handle.write("\n")
 
+    per_pos = collections.Counter(row["position"] for row in pool)
     print(
-        f"pool: {len(rows)} of {len(source['players'])} players, "
-        f"{POINTS_FIELD} + adp -> {paths.display(args.output)}",
+        f"pool: {len(pool)} players ("
+        + ", ".join(f"{pos} {per_pos[pos]}" for pos in POSITIONS)
+        + f") -> {paths.display(args.output)}",
         file=sys.stderr,
     )
     if args.report:
-        report(source, kept, rows, stats)
+        report(rows, projected, pool, diagnostics, index, meta)
     return 0
 
 

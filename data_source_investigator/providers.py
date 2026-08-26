@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import csv
 import json
+import re
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Callable
@@ -11,6 +12,19 @@ from typing import Callable
 from identity import normalized_name
 
 POSITIONS = {"QB", "RB", "WR", "TE"}
+
+#: Provider team codes -> Sleeper's, so the last-name-plus-team identity tier can join.
+#: FantasyPros writes JAC; KeepTradeCut also uses three-letter codes for a few teams.
+TEAM_ALIASES = {
+    "JAC": "JAX",
+    "GBP": "GB",
+    "KCC": "KC",
+    "LVR": "LV",
+    "NEP": "NE",
+    "NOS": "NO",
+    "SFO": "SF",
+    "TBB": "TB",
+}
 
 
 def js_json(text: str, marker: str):
@@ -24,6 +38,12 @@ def js_json(text: str, marker: str):
     return value
 
 
+def read_html(path: Path) -> str:
+    # KeepTradeCut serves a stray non-UTF-8 byte or two in its page chrome; the embedded
+    # JSON is clean, so a replacement character there costs nothing.
+    return path.read_text(encoding="utf-8", errors="replace")
+
+
 def player(
     rank: int,
     name: str,
@@ -32,66 +52,50 @@ def player(
     value: int | float | None,
     sleeper_id: str | None = None,
 ) -> dict:
+    code = team.strip().upper() if team and team.strip() else None
     return {
         "rank": int(rank),
         "name": name.strip(),
         "position": position.strip().upper(),
-        "team": team.strip().upper() if team and team.strip() else None,
+        "team": None if code in (None, "FA") else TEAM_ALIASES.get(code, code),
         "sleeper_id": str(sleeper_id) if sleeper_id not in (None, "") else None,
         "value": value,
     }
 
 
-def parse_fantasycalc(path: Path) -> list[dict]:
-    rows = json.loads(path.read_text())
+def ranked_by_value(rows: list[dict], descending: bool) -> list[dict]:
+    """Re-rank 1..N by value, keeping the provider's own order among ties."""
+    sign = -1 if descending else 1
+    rows.sort(key=lambda row: (sign * row["value"], row["rank"]))
+    for rank, row in enumerate(rows, start=1):
+        row["rank"] = rank
+    return rows
+
+
+def parse_fantasypros_ecr(path: Path) -> list[dict]:
+    data = js_json(read_html(path), "var ecrData =")
     result = []
-    for row in rows:
-        raw = row["player"]
-        if raw["position"] in POSITIONS:
+    for raw in data["players"]:
+        position = raw["player_position_id"]
+        if position in POSITIONS:
             result.append(
                 player(
-                    row["overallRank"],
-                    raw["name"],
-                    raw["position"],
-                    raw.get("maybeTeam"),
-                    row.get("value"),
-                    raw.get("sleeperId"),
+                    raw["rank_ecr"],
+                    raw["player_name"],
+                    position,
+                    raw.get("player_team_id"),
+                    float(raw["rank_ave"]),
                 )
             )
     return result
 
 
-def parse_keeptradecut(path: Path) -> list[dict]:
-    rows = js_json(path.read_text(), "var playersArray =")
-    ranked = []
-    for raw in rows:
-        if raw["position"] not in POSITIONS:
-            continue
-        # KTC calls its lightest TE-premium setting TE+. Its own description says
-        # this includes a +0.5 PPR boost, which is the setting in this league.
-        values = raw["superflexValues"]["tep"]
-        ranked.append(
-            player(
-                values["rank"],
-                raw["playerName"],
-                raw["position"],
-                raw.get("team"),
-                values.get("value"),
-            )
-        )
-    # KTC's TE+ overlay currently emits a few duplicate rank numbers even though
-    # the values are distinct. Value is what drives its displayed board.
-    ranked.sort(key=lambda row: (-row["value"], row["rank"], row["name"]))
-    for rank, row in enumerate(ranked, start=1):
-        row["rank"] = rank
-    return ranked
+class TableRows(HTMLParser):
+    """Capture the cell text of every row of one <table>, chosen by id."""
 
-
-class RankingsTable(HTMLParser):
-    """Capture the five-column SEO table published by Dynasty Nerds."""
-
-    def __init__(self):
+    def __init__(self, table_id: str):
         super().__init__()
+        self.table_id = table_id
         self.active = False
         self.in_row = False
         self.in_cell = False
@@ -100,7 +104,7 @@ class RankingsTable(HTMLParser):
         self.text: list[str] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        if tag == "div" and dict(attrs).get("id") == "dr-seo-table":
+        if tag == "table" and dict(attrs).get("id") == self.table_id:
             self.active = True
         elif self.active and tag == "tr":
             self.in_row = True
@@ -120,42 +124,120 @@ class RankingsTable(HTMLParser):
         elif self.in_row and tag == "tr":
             self.rows.append(self.row)
             self.in_row = False
+        elif self.active and tag == "table":
+            self.active = False
 
 
-def parse_dynastynerds(path: Path) -> list[dict]:
-    parser = RankingsTable()
-    parser.feed(path.read_text())
-    result = []
-    for row in parser.rows:
-        if len(row) != 5 or not row[0].isdigit():
+#: "Josh Allen (BUF - QB)", "Travis Hunter (JAC - WR,CB)", "Elijah Mitchell ( - RB)"; an
+#: injury tag such as DTD may trail the closing parenthesis.
+AUCTION_NAME = re.compile(r"^(?P<name>.+?) \((?P<team>[A-Z]*) - (?P<positions>[A-Z,]+)\)")
+
+
+def parse_fantasypros_auction(path: Path) -> list[dict]:
+    """The Draft Wizard calculator's overall table: name cell, rounded $, unrounded value."""
+    parser = TableRows("OverallTable")
+    parser.feed(read_html(path))
+    rows = []
+    for cells in parser.rows:
+        if len(cells) != 4 or not cells[2].startswith("$"):
+            continue  # the header row
+        found = AUCTION_NAME.match(cells[1])
+        if found is None:
+            raise ValueError(f"unexpected auction row {cells[1]!r}")
+        position = found["positions"].split(",")[0]
+        if position not in POSITIONS:
             continue
-        result.append(player(int(row[0]), row[1], row[3], row[2], int(row[4].replace(",", ""))))
-    return result
+        row = player(len(rows) + 1, found["name"], position, found["team"], int(cells[2][1:]))
+        # Dollars are rounded, so the board is ordered by the calculator's unrounded value.
+        row["unrounded"] = float(cells[3])
+        rows.append(row)
+    rows.sort(key=lambda row: (-row.pop("unrounded"), row["rank"]))
+    for rank, row in enumerate(rows, start=1):
+        row["rank"] = rank
+    return rows
 
 
-def parse_fantasypros(path: Path) -> list[dict]:
-    data = js_json(path.read_text(), "var ecrData =")
+def parse_keeptradecut(path: Path) -> list[dict]:
+    rows = js_json(read_html(path), "var playersArray =")
+    ranked = []
+    for raw in rows:
+        if raw["position"] not in POSITIONS:
+            continue
+        values = raw["superflexValues"]  # the plain (no TE premium) superflex board
+        ranked.append(
+            player(
+                values["rank"],
+                raw["playerName"],
+                raw["position"],
+                raw.get("team"),
+                values["value"],
+            )
+        )
+    return ranked_by_value(ranked, descending=True)
+
+
+def parse_fantasycalc(path: Path) -> list[dict]:
+    rows = json.loads(path.read_bytes())
     result = []
-    for raw in data["players"]:
-        position = raw["player_position_id"]
-        if position in POSITIONS:
+    for row in rows:
+        raw = row["player"]
+        if raw["position"] in POSITIONS:
             result.append(
                 player(
-                    raw["rank_ecr"],
-                    raw["player_name"],
-                    position,
-                    raw.get("player_team_id"),
-                    float(raw["rank_ave"]),
+                    row["overallRank"],
+                    raw["name"],
+                    raw["position"],
+                    raw.get("maybeTeam"),
+                    row.get("value"),
+                    raw.get("sleeperId"),
                 )
             )
     return result
 
 
+def parse_sleeper_adp(path: Path) -> list[dict]:
+    """Sleeper's projections feed, which carries the ADP its draft rooms display."""
+    rows = json.loads(path.read_bytes())
+    ranked = []
+    for raw in rows:
+        info = raw["player"]
+        adp = (raw.get("stats") or {}).get("adp_2qb")
+        if info.get("position") not in POSITIONS or adp is None or adp >= 999:
+            continue  # 999 is Sleeper's "goes undrafted"
+        ranked.append(
+            player(
+                len(ranked) + 1,
+                f"{info['first_name']} {info['last_name']}",
+                info["position"],
+                info.get("team"),
+                adp,
+                raw["player_id"],
+            )
+        )
+    return ranked_by_value(ranked, descending=False)
+
+
+def parse_ffcalculator(path: Path) -> list[dict]:
+    data = json.loads(path.read_bytes())
+    ranked = [
+        player(index, raw["name"], raw["position"], raw.get("team"), raw["adp"])
+        for index, raw in enumerate(data["players"], start=1)
+        if raw["position"] in POSITIONS
+    ]
+    return ranked_by_value(ranked, descending=False)
+
+
 PARSERS: dict[str, tuple[str, str, Callable[[Path], list[dict]]]] = {
-    "fantasycalc": ("FantasyCalc", "fantasycalc.json", parse_fantasycalc),
+    "fantasypros_ecr": ("FantasyPros ECR", "fantasypros_ecr.html", parse_fantasypros_ecr),
+    "fantasypros_auction": (
+        "FantasyPros auction values",
+        "fantasypros_auction.html",
+        parse_fantasypros_auction,
+    ),
     "keeptradecut": ("KeepTradeCut", "keeptradecut.html", parse_keeptradecut),
-    "dynastynerds": ("Dynasty Nerds", "dynastynerds.html", parse_dynastynerds),
-    "fantasypros": ("FantasyPros ECR", "fantasypros.html", parse_fantasypros),
+    "fantasycalc": ("FantasyCalc", "fantasycalc.json", parse_fantasycalc),
+    "sleeper_adp": ("Sleeper ADP", "sleeper_projections.json", parse_sleeper_adp),
+    "ffcalculator": ("FFCalculator ADP", "ffcalculator.json", parse_ffcalculator),
 }
 
 
@@ -186,28 +268,13 @@ def parse_manual(path: Path) -> list[dict]:
         return rows
 
 
-def draftsharks_adp(pool: dict) -> list[dict]:
-    available = [row for row in pool["players"] if row.get("adp") is not None]
-    available.sort(key=lambda row: (row["adp"], row["rank"]))
-    return [
-        player(
-            rank,
-            raw["name"],
-            raw["position"],
-            raw.get("team"),
-            raw["adp"],
-            raw.get("sleeper_id"),
-        )
-        for rank, raw in enumerate(available, start=1)
-    ]
-
-
 def drop_ambiguous_identities(rows: list[dict]) -> tuple[list[dict], list[str]]:
     """Split off every row of a same-name-same-position collision.
 
-    FantasyPros' 2026 ECR lists two distinct WRs named Isaiah Williams. A name-keyed
-    identity cannot tell such rows apart, so none of them is joinable to the pool;
-    dropping the collision (reported by the caller) beats failing the whole source.
+    A provider can list two distinct players under one name and position (FantasyPros'
+    dynasty board once carried two WRs named Isaiah Williams). A name-keyed identity
+    cannot tell such rows apart, so none of them is joinable to the pool; dropping the
+    collision (reported by the caller) beats failing the whole source.
     """
     counts: dict[tuple[str, str], int] = {}
     for row in rows:
@@ -238,4 +305,3 @@ def validate(source_id: str, rows: list[dict]) -> list[str]:
     if len(identities) != len(set(identities)):
         problems.append(f"{source_id}: duplicate player identities")
     return problems
-

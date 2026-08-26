@@ -20,13 +20,8 @@ from pathlib import Path
 
 import paths
 from identity import PlayerResolver
-from providers import (
-    PARSERS,
-    draftsharks_adp,
-    drop_ambiguous_identities,
-    parse_manual,
-    validate,
-)
+from providers import PARSERS, drop_ambiguous_identities, parse_manual, validate
+
 
 def write_json(path: Path, payload: dict, indent: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -105,7 +100,7 @@ def main(argv: list[str] | None = None) -> int:
     manual_paths = sorted(args.manual.glob("*.csv")) if args.manual.exists() else []
     for source_path in manual_paths:
         source_id = source_path.stem
-        if source_id in PARSERS or source_id == "draftsharks_adp":
+        if source_id in PARSERS:
             failures.append(f"manual source id {source_id!r} conflicts with a built-in source")
             continue
         try:
@@ -138,22 +133,6 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, KeyError, TypeError, ValueError) as exc:
             failures.append(f"{source_id}: {exc}")
 
-    ds_rows = draftsharks_adp(pool)
-    for row in ds_rows:
-        row["sleeper_id"] = resolver.resolve(row)
-    sources.append(
-        {
-            "id": "draftsharks_adp",
-            "name": "DraftSharks superflex ADP",
-            "url": None,
-            "format": "dynasty superflex ADP from pool.json; TEP is not reflected in ADP",
-            "fetched_at": None,
-            "player_count": len(ds_rows),
-            "matched_to_sleeper": sum(row["sleeper_id"] is not None for row in ds_rows),
-            "players": ds_rows,
-        }
-    )
-
     if failures:
         print("ranking normalization failed:", file=sys.stderr)
         for failure in failures:
@@ -167,7 +146,8 @@ def main(argv: list[str] | None = None) -> int:
         "generated_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
         "league_format": {
             "teams": 12,
-            "type": "dynasty superflex",
+            "type": "redraft superflex auction",
+            "budget": 200,
             "ppr": 0.5,
             "te_reception_bonus": 0.0,
         },

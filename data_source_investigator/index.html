@@ -374,9 +374,9 @@
     return SOURCE_COLORS[index % SOURCE_COLORS.length];
   };
   const sourceLabel = name => name
-    .replace("DraftSharks superflex ADP", "DraftSharks ADP")
-    .replace("FantasyPros ECR", "FantasyPros")
-    .replace("Dynasty Nerds", "Dynasty Nerds");
+    .replace("FantasyPros auction values", "FP auction $")
+    .replace("FantasyPros ECR", "FP ECR")
+    .replace("FFCalculator ADP", "FFC ADP");
   const ownerLabel = owner => owner.username || `Roster ${owner.roster_id}`;
   const ownerKey = owner => owner.username || `roster-${owner.roster_id}`;
   const fitHeat = score => `${Math.round(8 + Math.max(0, Math.min(1, (score - 40) / 55)) * 60)}%`;

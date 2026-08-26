@@ -7,7 +7,9 @@ consumes those artifacts and the static dashboard renders the result.
 
 The league is a redraft with an auction draft; the toolkit still models a dynasty snake
 startup. That rework is pending, so the pick-order assumptions below are placeholders
-and `fetch_draft.py` refuses the auction draft until it lands.
+and `fetch_draft.py` refuses the auction draft until it lands. The data sources are
+already redraft: `pool.json` carries FantasyPros' one-season projections scored for this
+league, and the investigator snapshots redraft and auction boards in this format.
 
 ## League assumptions
 
@@ -22,6 +24,10 @@ Discovered from the Sleeper API (league `1396606685107200000`, draft
 - Auction draft, $200 budget, no pick order. The ranker stands in a plain snake (no
   reversal) with me in slot 2, a placeholder carried over from the 2025 snake: 1.02,
   2.11, 3.02, 4.11, 5.02, 6.11, …, 13.02, 14.11
+
+Projections are FantasyPros' 2026 consensus season projections, scored under these
+settings by `pool_pipeline/`. The ranker's years-2–3 horizon is zero on this pool: there
+is no multi-year projection in a redraft, and none is invented.
 
 These are project assumptions, not runtime configuration. Ranker constants live in
 `ranker/league.py`.
@@ -51,7 +57,8 @@ data_source_investigator/ ────> data_source_matches.json
 
 The published files have distinct owners:
 
-- `pool.json`: 350 projection-backed QB/RB/WR/TE players, keyed to Sleeper
+- `pool.json`: every QB/RB/WR/TE with a FantasyPros season projection that joins to a
+  Sleeper player, scored for this league (about 480)
 - `draft.json`: all 168 made and pending picks from Sleeper
 - `data_source_matches.json`: the provider board closest to each opponent's picks
 - `rankings.json`: undrafted-player rankings, recommendations, simulations, and validation
@@ -61,10 +68,11 @@ opponent source matches to the live board.
 
 ## Components
 
-- [Pool pipeline](pool_pipeline/README.md): provider HTML to the league-specific pool
+- [Pool pipeline](pool_pipeline/README.md): FantasyPros projection exports and Sleeper's
+  player list to the league-specific pool
 - [Draft pipeline](draft_pipeline/README.md): Sleeper API to the complete live board
-- [Data-source investigator](data_source_investigator/README.md): normalize provider
-  boards and infer opponent strategies
+- [Data-source investigator](data_source_investigator/README.md): normalize redraft and
+  auction provider boards and infer opponent strategies
 - [Ranker](ranker/README.md): wire-level solver, opponent simulation, planning,
   and output contracts
 - `index.html`: dependency-free dashboard for `rankings.json`
@@ -76,18 +84,19 @@ checks remain beside the draft, investigator, and ranker code they exercise. The
 meet through their published JSON contracts rather than shared orchestration.
 
 The ranker values a roster as expected optimal lineup points in separate year-one and
-years-2–3 horizons. Position-wide availability determines when depth is called on, and
-one unique final waiver body per position supplies the fallback. Personal and
-opponent strategies are intentionally separate: my slot uses the projection-based roster
-objective, while each opponent follows its inferred external board with roster-balance
-adjustments and fitted choice noise. Opponent picks never use my projections or board.
+years-2–3 horizons (the latter zero on the redraft pool). Position-wide availability
+determines when depth is called on, and one unique final waiver body per position
+supplies the fallback. Personal and opponent strategies are intentionally separate: my
+slot uses the projection-based roster objective, while each opponent follows its inferred
+external board with roster-balance adjustments and fitted choice noise. Opponent picks
+never use my projections or board.
 
 ## Common workflows
 
-Rebuild the projection pool after saving updated provider HTML:
+Rebuild the projection pool after re-exporting the FantasyPros CSVs:
 
 ```bash
-uv run pool_pipeline/pipeline.py --report
+uv run pool_pipeline/build_pool.py --report
 ```
 
 Refresh ranking snapshots and opponent associations:
@@ -95,6 +104,9 @@ Refresh ranking snapshots and opponent associations:
 ```bash
 uv run data_source_investigator/pipeline.py --report
 ```
+
+Until the auction `draft.json` exists, run only the snapshot stages:
+`--only fetch`, then `--only build`.
 
 Refresh the live board and recommendations between picks:
 
@@ -114,6 +126,9 @@ uv run draft_pipeline/fetch_draft.py --selftest
 uv run data_source_investigator/investigate.py --selftest
 uv run evaluate_opponents.py
 ```
+
+`rank.py --selftest` reads `pool.json`, and its years-2–3 lineup regression fails on the
+redraft pool until the ranker rework; the other checks pass.
 
 Before and after changing an opponent model or pick policy, run
 `uv run evaluate_opponents.py` and compare its replay accuracy.
