@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import math
+import random
+import statistics
+from copy import deepcopy
 from dataclasses import dataclass, field
+from hashlib import blake2s
 
 from .league import (
     ANALYSIS_POOL_MAX,
@@ -14,11 +18,21 @@ from .league import (
     MIN_BID,
     POSITIONS,
     ROSTER_SLOTS,
+    SEED,
     STARTING_SLOTS,
     TEAMS,
 )
 from .pool import Player
-from .value import HORIZONS, team_values_with_candidates
+from .value import team_values_with_candidates
+
+
+# Cold-start owners should disagree without making the live board jump between refreshes.
+# A 16% lognormal spread is enough to separate similar tiers while leaving source order
+# and roster/budget constraints as the dominant inputs. The negative center keeps the
+# second-highest of eleven noisy ceilings near the original market curve.
+_FIELD_NOISE_SIGMA = 0.16
+_FIELD_NOISE_LOG_MEAN = -0.14
+_AUCTION_SIMULATIONS = 40
 
 
 @dataclass(slots=True)
@@ -281,7 +295,7 @@ def _eligible_for_completion(team: Team, roster: list[Player], candidates: list[
 
 
 def _completion_gain(team: Team, candidates: list[Player], wire: dict) -> tuple[float, list[dict]]:
-    """Greedy marginal-value completion used only to set the point-to-dollar rate."""
+    """Greedy marginal-value completion used to set the point-to-dollar rate."""
     roster = list(team.players)
     remaining = list(candidates)
     initial_value, _ = team_values_with_candidates(roster, wire, [])
@@ -300,12 +314,30 @@ def _completion_gain(team: Team, candidates: list[Player], wire: dict) -> tuple[
                 "name": chosen.name,
                 "position": chosen.position,
                 "lineup_gain": round(gain, 1),
+                "_gain": gain,
             }
         )
         roster.append(chosen)
         remaining = [player for player in remaining if player.player_id != chosen.player_id]
     final_value, _ = team_values_with_candidates(roster, wire, [])
-    return max(0.0, final_value - initial_value), plan
+    total_gain = max(0.0, final_value - initial_value)
+    discretionary = max(0, team.remaining_budget - MIN_BID * team.slots_left)
+    if plan and total_gain > 0:
+        exact = [discretionary * row["_gain"] / total_gain for row in plan]
+        extras = [math.floor(value) for value in exact]
+        left = discretionary - sum(extras)
+        order = sorted(
+            range(len(plan)), key=lambda i: (-(exact[i] - extras[i]), i)
+        )
+        for index in order[:left]:
+            extras[index] += 1
+        for row, extra in zip(plan, extras):
+            row["value_budget"] = MIN_BID + extra
+            del row["_gain"]
+    else:
+        for row in plan:
+            del row["_gain"]
+    return total_gain, plan
 
 
 def _curve_value(curve: list[float], rank: int) -> float:
@@ -313,27 +345,23 @@ def _curve_value(curve: list[float], rank: int) -> float:
 
 
 def _field_base(
-    player_id: int,
     rank: int,
-    auction_values: dict[int, int],
     curve: list[float],
 ) -> float:
-    direct = float(auction_values.get(player_id, 0))
-    return max(float(MIN_BID), (direct + _curve_value(curve, rank)) / 2.0)
+    return max(float(MIN_BID), _curve_value(curve, rank))
 
 
 def _field_inflation(
     state: AuctionState,
     available: list[Player],
     consensus_rank: dict[int, int],
-    auction_values: dict[int, int],
     curve: list[float],
 ) -> float:
     projected = sorted(
         available, key=lambda player: (consensus_rank[player.player_id], player.player_id)
     )[: state.open_slots]
     baseline = sum(
-        _field_base(player.player_id, consensus_rank[player.player_id], auction_values, curve)
+        _field_base(consensus_rank[player.player_id], curve)
         for player in projected
     )
     remaining = sum(team.remaining_budget for team in state.teams)
@@ -344,26 +372,67 @@ def _field_inflation(
 
 def _team_position_factor(team: Team, position: str) -> float:
     counts = team.position_counts()
-    if counts[position] >= AUCTION_POSITION_TARGETS[position]:
-        return 0.65
     owed = sum(
         max(0, DEDICATED_SLOTS[pos] - counts[pos]) for pos in POSITIONS
     )
     if team.slots_left <= owed and counts[position] < DEDICATED_SLOTS[position]:
         return 1.15
+    excess_after = counts[position] + 1 - AUCTION_POSITION_TARGETS[position]
+    if excess_after > 0:
+        return 0.55**excess_after
     return 1.0
 
 
-def _personal_purchase_is_legal(team: Team, player: Player) -> bool:
+def _purchase_is_legal(team: Team, player: Player) -> bool:
     """A purchase must leave enough spots to fill every dedicated starter group."""
     if team.slots_left <= 0:
         return False
     counts = team.position_counts()
+    if counts[player.position] >= AUCTION_POSITION_TARGETS[player.position] + 2:
+        return False
     counts[player.position] += 1
     owed_after = sum(
         max(0, DEDICATED_SLOTS[position] - counts[position]) for position in POSITIONS
     )
     return owed_after <= team.slots_left - 1
+
+
+def _stable_field_noise(state: AuctionState, team: Team, player: Player) -> float:
+    key = f"{state.raw.get('draft_id')}|{team.roster_id}|{player.player_id}".encode()
+    digest = blake2s(key, digest_size=16).digest()
+    scale = 1 << 64
+    u1 = (int.from_bytes(digest[:8], "big") + 0.5) / scale
+    u2 = (int.from_bytes(digest[8:], "big") + 0.5) / scale
+    normal = math.sqrt(-2.0 * math.log(u1)) * math.cos(2.0 * math.pi * u2)
+    return math.exp(_FIELD_NOISE_LOG_MEAN + _FIELD_NOISE_SIGMA * normal)
+
+
+def _opponent_bid(
+    player: Player,
+    team: Team,
+    source_id: str,
+    source_ranks: dict[str, dict[int, int]],
+    consensus_rank: dict[int, int],
+    curve: list[float],
+    inflation: float,
+    league_per_slot: float,
+    noise: float,
+) -> int:
+    if not _purchase_is_legal(team, player) or team.max_legal_bid < MIN_BID:
+        return 0
+    rank = (
+        source_ranks[source_id][player.player_id]
+        if source_id in source_ranks
+        else consensus_rank[player.player_id]
+    )
+    base = _field_base(rank, curve)
+    team_per_slot = team.remaining_budget / team.slots_left
+    pace = math.sqrt(team_per_slot / league_per_slot) if league_per_slot else 1.0
+    pace = min(1.25, max(0.75, pace))
+    modeled = math.floor(
+        base * inflation * pace * _team_position_factor(team, player.position) * noise + 0.5
+    )
+    return min(team.max_legal_bid, max(MIN_BID, modeled))
 
 
 def _field_price(
@@ -372,7 +441,6 @@ def _field_price(
     source_by_roster: dict[int, str],
     source_ranks: dict[str, dict[int, int]],
     consensus_rank: dict[int, int],
-    auction_values: dict[int, int],
     curve: list[float],
     inflation: float,
 ) -> tuple[int, list[dict]]:
@@ -381,27 +449,28 @@ def _field_price(
     league_per_slot = remaining / open_slots if open_slots else 0.0
     bids = []
     for team in state.teams:
-        if team.is_mine or team.slots_left <= 0 or team.max_legal_bid < MIN_BID:
+        if team.is_mine or team.slots_left <= 0:
             continue
         source_id = source_by_roster.get(team.roster_id)
-        rank = (
-            source_ranks[source_id][player.player_id]
-            if source_id in source_ranks
-            else consensus_rank[player.player_id]
+        bid = _opponent_bid(
+            player,
+            team,
+            source_id or "",
+            source_ranks,
+            consensus_rank,
+            curve,
+            inflation,
+            league_per_slot,
+            _stable_field_noise(state, team, player),
         )
-        base = _field_base(player.player_id, rank, auction_values, curve)
-        team_per_slot = team.remaining_budget / team.slots_left
-        pace = math.sqrt(team_per_slot / league_per_slot) if league_per_slot else 1.0
-        pace = min(1.25, max(0.75, pace))
-        modeled = math.floor(
-            base * inflation * pace * _team_position_factor(team, player.position) + 0.5
-        )
-        bid = min(team.max_legal_bid, max(MIN_BID, modeled))
+        if bid < MIN_BID:
+            continue
         bids.append(
             {
                 "roster_id": team.roster_id,
                 "team": team.team_name or team.username or f"Roster {team.roster_id}",
                 "max_bid": bid,
+                "source_id": source_id,
             }
         )
     bids.sort(key=lambda row: (-row["max_bid"], row["roster_id"]))
@@ -413,14 +482,240 @@ def _field_price(
     return winning, bids[:3]
 
 
-def _source_by_roster(state: AuctionState, matches: dict | None) -> dict[int, str]:
-    if not matches or (matches.get("draft") or {}).get("draft_id") != state.raw.get("draft_id"):
-        return {}
-    return {
+def _source_by_roster(
+    state: AuctionState, matches: dict | None, source_ids: list[str]
+) -> tuple[dict[int, str], set[int]]:
+    matched = {
         int(owner["roster_id"]): owner["inferred_source"]["source_id"]
-        for owner in matches.get("owners") or []
+        for owner in (matches or {}).get("owners") or []
         if owner.get("roster_id") is not None and owner.get("inferred_source")
+        and (matches.get("draft") or {}).get("draft_id") == state.raw.get("draft_id")
     }
+    if not source_ids:
+        raise ValueError("provider snapshot has no source boards")
+    offset = int.from_bytes(
+        blake2s(str(state.raw.get("draft_id")).encode(), digest_size=2).digest(), "big"
+    ) % len(source_ids)
+    unknown = [
+        team for team in sorted(state.teams, key=lambda item: item.roster_id)
+        if not team.is_mine and team.roster_id not in matched
+    ]
+    assigned = dict(matched)
+    for index, team in enumerate(unknown):
+        assigned[team.roster_id] = source_ids[(offset + index) % len(source_ids)]
+    return assigned, set(matched)
+
+
+def _value_max_bid(team: Team, player: Player, gain: float, point_rate: float) -> int:
+    if not _purchase_is_legal(team, player):
+        return 0
+    share = gain / point_rate if point_rate > 0 else 0.0
+    modeled = math.floor(MIN_BID + share + 0.5)
+    return min(team.max_legal_bid, max(MIN_BID, modeled))
+
+
+def _percentile(values: list[int], fraction: float) -> int:
+    ordered = sorted(values)
+    return ordered[round((len(ordered) - 1) * fraction)]
+
+
+def _simulate_auctions(
+    state: AuctionState,
+    candidates: list[Player],
+    wire: dict,
+    initial_completion_gain: float,
+    curve: list[float],
+    source_ranks: dict[str, dict[int, int]],
+    consensus_rank: dict[int, int],
+    source_by_roster: dict[int, str],
+    matched_rosters: set[int],
+) -> tuple[dict, dict[int, dict]]:
+    """Roll out complete auctions under uncertain nominations and field evaluations."""
+    acquired: dict[int, list[int]] = {player.player_id: [] for player in candidates}
+    prices: dict[int, list[int]] = {player.player_id: [] for player in candidates}
+    affordable = {player.player_id: 0 for player in candidates}
+    considered = {player.player_id: 0 for player in candidates}
+    completed = 0
+    roster_values: list[float] = []
+    mine_spent: list[int] = []
+    mine_position_counts = {position: [] for position in POSITIONS}
+    league_position_max = {position: 0 for position in POSITIONS}
+    pathological_rosters = 0
+    representative: list[dict] = []
+    outcomes: list[tuple[float, list[dict]]] = []
+    source_ids = sorted(source_ranks)
+
+    for simulation in range(_AUCTION_SIMULATIONS):
+        rng = random.Random(SEED + simulation)
+        sim_state = deepcopy(state)
+        for team in sim_state.teams:
+            if not team.is_mine and team.roster_id not in matched_rosters:
+                source_by_roster = {
+                    **source_by_roster,
+                    team.roster_id: rng.choice(source_ids),
+                }
+        # Top players normally surface earlier, but nomination order has substantial room
+        # for price-enforcement nominations and personal favorites.
+        nominations = sorted(
+            candidates,
+            key=lambda player: (
+                consensus_rank[player.player_id] + rng.gauss(0.0, 36.0),
+                player.player_id,
+            ),
+        )
+        available = list(candidates)
+        completion_gain = initial_completion_gain
+        discretionary = max(
+            0, sim_state.mine.remaining_budget - MIN_BID * sim_state.mine.slots_left
+        )
+        point_rate = completion_gain / discretionary if discretionary else 0.0
+
+        for pick_no, player in enumerate(nominations, start=state.picks_made + 1):
+            if not sim_state.open_slots:
+                break
+            inflation = _field_inflation(sim_state, available, consensus_rank, curve)
+            league_per_slot = (
+                sum(team.remaining_budget for team in sim_state.teams) / sim_state.open_slots
+            )
+            bids: list[tuple[int, float, Team]] = []
+            my_bid = 0
+            my_gain = 0.0
+            highest_opponent = 0
+            for team in sim_state.teams:
+                if team.is_mine:
+                    if _purchase_is_legal(team, player):
+                        base, values = team_values_with_candidates(team.players, wire, [player])
+                        my_gain = max(0.0, values[player.player_id] - base)
+                        my_bid = _value_max_bid(team, player, my_gain, point_rate)
+                        if my_bid:
+                            considered[player.player_id] += 1
+                            bids.append((my_bid, rng.random(), team))
+                    continue
+                noise = rng.lognormvariate(
+                    _FIELD_NOISE_LOG_MEAN, _FIELD_NOISE_SIGMA
+                )
+                bid = _opponent_bid(
+                    player,
+                    team,
+                    source_by_roster[team.roster_id],
+                    source_ranks,
+                    consensus_rank,
+                    curve,
+                    inflation,
+                    league_per_slot,
+                    noise,
+                )
+                if bid:
+                    highest_opponent = max(highest_opponent, bid)
+                    bids.append((bid, rng.random(), team))
+            if my_bid and my_bid >= highest_opponent + MIN_BID:
+                affordable[player.player_id] += 1
+            if not bids:
+                continue
+            bids.sort(key=lambda item: (-item[0], item[1]))
+            ceiling, _, winner = bids[0]
+            price = MIN_BID if len(bids) == 1 else min(ceiling, bids[1][0] + MIN_BID)
+            prices[player.player_id].append(price)
+            winner.purchases.append(
+                Purchase(
+                    pick_no,
+                    player.sleeper_id,
+                    player.name,
+                    player.position,
+                    player.team,
+                    price,
+                    player,
+                )
+            )
+            available.remove(player)
+            sim_state.taken.add(player.player_id)
+            if winner.is_mine:
+                acquired[player.player_id].append(price)
+                completion_gain, _ = _completion_gain(sim_state.mine, available, wire)
+                discretionary = max(
+                    0,
+                    sim_state.mine.remaining_budget
+                    - MIN_BID * sim_state.mine.slots_left,
+                )
+                point_rate = completion_gain / discretionary if discretionary else 0.0
+
+        valid = sim_state.open_slots == 0
+        for team in sim_state.teams:
+            counts = team.position_counts()
+            for position, count in counts.items():
+                league_position_max[position] = max(league_position_max[position], count)
+                if count > AUCTION_POSITION_TARGETS[position] + 2:
+                    pathological_rosters += 1
+            valid = valid and team.spent <= team.budget
+            valid = valid and all(
+                counts[position] >= DEDICATED_SLOTS[position] for position in POSITIONS
+            )
+        if not valid:
+            continue
+        completed += 1
+        value, _ = team_values_with_candidates(sim_state.mine.players, wire, [])
+        roster_values.append(value)
+        mine_spent.append(sim_state.mine.spent)
+        counts = sim_state.mine.position_counts()
+        for position in POSITIONS:
+            mine_position_counts[position].append(counts[position])
+        roster = [
+            {
+                "player_id": purchase.player.player_id,
+                "name": purchase.player.name,
+                "position": purchase.player.position,
+                "amount": purchase.amount,
+            }
+            for purchase in sim_state.mine.purchases[len(state.mine.purchases) :]
+            if purchase.player is not None
+        ]
+        outcomes.append((value, roster))
+
+    if outcomes:
+        median_value = statistics.median(value for value, _ in outcomes)
+        representative = min(outcomes, key=lambda item: abs(item[0] - median_value))[1]
+
+    player_results = {}
+    for player in candidates:
+        player_prices = prices[player.player_id]
+        wins = acquired[player.player_id]
+        opportunities = considered[player.player_id]
+        player_results[player.player_id] = {
+            "simulated_roster_rate": round(len(wins) / _AUCTION_SIMULATIONS, 3),
+            "simulated_affordable_rate": round(
+                affordable[player.player_id] / opportunities, 3
+            ) if opportunities else 0.0,
+            "simulated_price_low": _percentile(player_prices, 0.1) if player_prices else None,
+            "simulated_price_median": _percentile(player_prices, 0.5) if player_prices else None,
+            "simulated_price_high": _percentile(player_prices, 0.9) if player_prices else None,
+            "simulated_purchase_price": round(statistics.mean(wins), 1) if wins else None,
+        }
+
+    summary = {
+        "simulations": _AUCTION_SIMULATIONS,
+        "completed": completed,
+        "my_projected_lineup_points": {
+            "mean": round(statistics.mean(roster_values), 1) if roster_values else None,
+            "low": round(min(roster_values), 1) if roster_values else None,
+            "high": round(max(roster_values), 1) if roster_values else None,
+        },
+        "my_spend": {
+            "mean": round(statistics.mean(mine_spent), 1) if mine_spent else None,
+            "low": min(mine_spent) if mine_spent else None,
+            "high": max(mine_spent) if mine_spent else None,
+        },
+        "my_position_ranges": {
+            position: {
+                "low": min(counts) if counts else None,
+                "high": max(counts) if counts else None,
+            }
+            for position, counts in mine_position_counts.items()
+        },
+        "largest_simulated_position_counts": league_position_max,
+        "pathological_rosters": pathological_rosters,
+        "representative_completion": representative,
+    }
+    return summary, player_results
 
 
 def analyze(
@@ -475,52 +770,27 @@ def analyze(
     discretionary = max(
         0, state.mine.remaining_budget - MIN_BID * state.mine.slots_left
     )
-    inflation = _field_inflation(
-        state, all_available, consensus_rank, auction_values, curve
+    inflation = _field_inflation(state, all_available, consensus_rank, curve)
+    source_by_roster, matched_rosters = _source_by_roster(
+        state, matches, sorted(source_ranks)
     )
-    source_by_roster = _source_by_roster(state, matches)
 
-    # The auction curve supplies only the dollar scale. Current-roster marginal value
-    # discounts the personal preseason anchor as a position fills.
-    league_per_slot = (
-        sum(team.remaining_budget for team in state.teams) / state.open_slots
-        if state.open_slots
-        else 0.0
-    )
-    my_per_slot = (
-        state.mine.remaining_budget / state.mine.slots_left
-        if state.mine.slots_left
-        else 0.0
-    )
-    budget_pace = math.sqrt(my_per_slot / league_per_slot) if league_per_slot else 1.0
-    budget_pace = min(1.5, max(0.5, budget_pace))
+    # Allocate this roster's discretionary dollars over the projected completion value.
+    # Unlike the market curve, this scale cannot spend the same dollar on fourteen
+    # independent "maximums" and it does not inherit a provider's top-player outlier.
+    point_rate = completion_gain / discretionary if discretionary else 0.0
 
     provisional = []
     for player in candidates:
-        if not _personal_purchase_is_legal(state.mine, player):
-            max_bid = 0
-        else:
-            generic_gain = generic_gains[player.player_id]
-            roster_factor = (
-                gains[player.player_id] / generic_gain if generic_gain > 0 else 0.0
-            )
-            personal_anchor = max(
-                float(MIN_BID), _curve_value(curve, projection_rank[player.player_id])
-            )
-            max_bid = min(
-                state.mine.max_legal_bid,
-                max(
-                    MIN_BID,
-                    math.floor(personal_anchor * inflation * budget_pace * roster_factor + 0.5),
-                ),
-            )
+        max_bid = _value_max_bid(
+            state.mine, player, gains[player.player_id], point_rate
+        )
         field_price, top_bidders = _field_price(
             player,
             state,
             source_by_roster,
             source_ranks,
             consensus_rank,
-            auction_values,
             curve,
             inflation,
         )
@@ -576,6 +846,21 @@ def analyze(
             }
         )
 
+    simulation, simulated_players = _simulate_auctions(
+        state,
+        candidates,
+        wire,
+        completion_gain,
+        curve,
+        source_ranks,
+        consensus_rank,
+        source_by_roster,
+        matched_rosters,
+    )
+    for row in rows:
+        row.update(simulated_players[row["player_id"]])
+        row["value_edge"] = row["max_bid"] - row["field_price"]
+
     nominations = sorted(
         (
             row for row in rows
@@ -584,6 +869,18 @@ def analyze(
             and row["field_price"] > MIN_BID
         ),
         key=lambda row: (-row["nomination_edge"], -row["field_price"], row["field_rank"]),
+    )[:8]
+    purchase_targets = sorted(
+        (
+            row for row in rows
+            if row["simulated_roster_rate"] > 0
+        ),
+        key=lambda row: (
+            -row["simulated_roster_rate"],
+            -row["value_edge"],
+            -row["lineup_gain"],
+            row["field_rank"],
+        ),
     )[:8]
     teams = []
     for team in sorted(state.teams, key=lambda item: item.roster_id):
@@ -620,6 +917,16 @@ def analyze(
         problems.append(f"analysis emitted {len(rows)} players, cap is {ANALYSIS_POOL_MAX}")
     if state.picks_made + state.open_slots != TEAMS * ROSTER_SLOTS:
         problems.append("made purchases plus open roster slots do not equal the draft size")
+    if simulation["completed"] != simulation["simulations"]:
+        problems.append(
+            f"only {simulation['completed']}/{simulation['simulations']} simulated auctions "
+            "finished with legal budgets and lineups"
+        )
+    if simulation["pathological_rosters"]:
+        problems.append(
+            f"simulated auctions built {simulation['pathological_rosters']} rosters with a "
+            "position more than two players beyond its modeled target"
+        )
     for row in rows:
         if row["player_id"] in state.taken:
             problems.append(f"drafted player {row['name']} remains on the bid board")
@@ -653,15 +960,17 @@ def analyze(
             "players_examined": len(rows),
             "available_pool_players": len(all_available),
             "field_inflation": round(inflation, 3),
+            "matched_opponent_sources": len(matched_rosters),
+            "cold_start_opponent_sources": len(source_by_roster) - len(matched_rosters),
             "wire": {h: {p: round(v, 1) for p, v in levels.items()} for h, levels in wire.items()},
+            "simulation": simulation,
             "pricing_note": (
-                "Max bid maps my projection-based preseason value rank onto the league's "
-                "$200 auction curve, discounts it by the player's marginal value on my "
-                "current roster, adjusts for live inflation and my budget pace, then applies "
-                "the hard $1 reserve for every other open slot. Field price is the modeled ascending-"
-                "auction result: one dollar above the second-highest opponent max, capped by "
-                "the highest, with provider ranks, roster depth, remaining budgets, and live "
-                "inflation applied."
+                "Max bid assigns the roster's dollars in proportion to each player's current "
+                "marginal share of a complete projected lineup, then applies the hard $1 "
+                "reserve for every other open slot. Field price is one dollar above the "
+                "second-highest legal opponent ceiling, capped by the highest. Opponent "
+                "ceilings use distinct source boards, stable evaluation noise, roster depth, "
+                "remaining budgets, and live inflation."
             ),
         },
         "my_auction": {
@@ -673,7 +982,7 @@ def analyze(
             "slots_left": state.mine.slots_left,
             "max_legal_bid": state.mine.max_legal_bid,
             "discretionary_budget": discretionary,
-            "budget_pace": round(budget_pace, 3),
+            "points_per_discretionary_dollar": round(point_rate, 2),
             "completion_gain": round(completion_gain, 1),
             "completion_plan": plan,
         },
@@ -683,6 +992,15 @@ def analyze(
                 "players the modeled opponents should buy for more than this roster should pay."
             ),
             "recommendations": nominations,
+        },
+        "purchase_strategy": {
+            "note": (
+                "Targets that fit the projection-valued budget and recur on this roster "
+                "across complete auction rollouts. Roster rate is the share of simulations "
+                "in which the budget-balanced bidding policy actually acquired the player; "
+                "it includes nomination order, opponent-source uncertainty, and bid noise."
+            ),
+            "recommendations": purchase_targets,
         },
         "teams": teams,
         "rankings_note": (
@@ -725,6 +1043,21 @@ def selftest(players: list[Player], rankings: dict) -> list[str]:
         problems.append("a player max bid exceeds the hard budget ceiling")
     if any(row["nomination_edge"] <= 0 for row in result["nomination_strategy"]["recommendations"]):
         problems.append("nomination list contains a non-draining player")
+    if sum(row["value_budget"] for row in result["my_auction"]["completion_plan"]) != AUCTION_BUDGET:
+        problems.append("completion value budgets do not allocate the full auction budget")
+    diverse_rows = [
+        row for row in result["rankings"][:40]
+        if len(row["top_field_bidders"]) >= 3
+        and len({bid["max_bid"] for bid in row["top_field_bidders"]}) > 1
+        and len({bid["source_id"] for bid in row["top_field_bidders"]}) > 1
+    ]
+    if not diverse_rows:
+        problems.append("cold-start field bidders did not have diverse sources and ceilings")
+    simulation = result["analysis"]["simulation"]
+    if simulation["completed"] != simulation["simulations"]:
+        problems.append("not every selftest auction simulation completed legally")
+    if simulation["pathological_rosters"]:
+        problems.append("selftest auction simulations produced a pathological position count")
     if not result["validation"]["ok"]:
         problems.extend(result["validation"]["problems"])
 
@@ -769,8 +1102,8 @@ def selftest(players: list[Player], rankings: dict) -> list[str]:
         )
     tight_end = next(player for player in players if player.position == "TE")
     extra_receiver = next(player for player in players if player.position == "WR")
-    if not _personal_purchase_is_legal(last_slot_team, tight_end):
+    if not _purchase_is_legal(last_slot_team, tight_end):
         problems.append("a final-slot tight end was rejected when tight end was still owed")
-    if _personal_purchase_is_legal(last_slot_team, extra_receiver):
+    if _purchase_is_legal(last_slot_team, extra_receiver):
         problems.append("a final-slot receiver was allowed when tight end was still owed")
     return problems

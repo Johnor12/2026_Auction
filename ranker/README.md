@@ -19,7 +19,7 @@ uv run rank.py --selftest
 - `pool.py`: `pool.json` to `Player` objects
 - `value.py`: exact expected-lineup value with position availability and waiver fallbacks
 - `auction.py`: live state, bounded candidate pool, maximum bids, field prices,
-  nominations, output, and auction self-tests
+  full-auction rollouts, pursue/nomination recommendations, output, and auction self-tests
 
 The older snake simulation modules remain in the repository for history but are not on
 the `rank.py` execution path.
@@ -37,34 +37,47 @@ rosters and are removed from the available pool.
 
 ## Maximum bid
 
-The FantasyPros 12-team, $200 auction values supply a dollar curve. Our projection-based
-preseason value rank selects a point on that curve. The live maximum bid then applies:
+The ranker greedily completes our current roster by marginal expected-lineup value. It
+allocates all discretionary dollars across the gains in that completion, producing one
+points-per-dollar rate. An available player's maximum bid is $1 plus its current marginal
+lineup gain at that rate, capped by
+`remaining budget - $1 * (other open slots)`.
 
-1. current roster factor = current marginal lineup gain / empty-roster marginal gain;
-2. league inflation = remaining league dollars / modeled price of remaining purchases;
-3. our budget pace relative to league dollars per open slot;
-4. the legal cap `remaining budget - $1 * (other open slots)`.
-
-This makes the value personal without inventing a runtime risk setting or running a slow
-portfolio simulation during the draft.
+This removes the FantasyPros curve's $57 top-player outlier from our personal budget. The
+curve remains the field's dollar scale, where it represents likely market behavior rather
+than our projection-valued willingness to pay.
 
 ## Field price and nominations
 
 Each opponent gets a modeled ceiling from its inferred source order. Before it has enough
-purchases to infer a source, the consensus of all normalized boards is used. Remaining
-budget, roster depth, and live inflation adjust the ceiling; a team cannot exceed its own
-legal maximum.
+purchases to infer a source, cold-start owners are deterministically spread across the
+normalized boards. Stable owner/player evaluation noise, remaining budget, roster depth,
+and live inflation adjust the ceiling. A team cannot exceed its own legal maximum, buy a
+player that makes its dedicated starter groups impossible to fill, or add more than two
+players beyond a modeled completed-roster position target.
 
 An ascending auction is priced at one dollar above the second-highest modeled opponent
 ceiling, capped by the highest. Nomination recommendations require a positive
 `field_price - max_bid` and sort by that drain gap.
 
+## Cost-efficient targets
+
+Forty fixed-seed rollouts finish the complete auction from the current state. They vary
+nomination order, cold-start opponent sources, and opponent evaluation noise. After every
+purchase, our bidding policy revalues its remaining projected roster completion so savings
+and missed targets change later bids.
+
+Each row reports the 10th, 50th, and 90th percentile simulated closing price, its simulated
+acquisition rate, and our average price when acquired. The **Pursue** list ranks players
+that most often land on the roster. It is a sequential uncertainty-aware heuristic, not
+a globally optimal roster chosen with knowledge of all future prices.
+
 ## Bounded live work
 
 The ranker examines at most 240 available players: remaining league purchases plus a
 72-player waiver buffer, capped at 240. The output board shrinks during the auction.
-Everything is deterministic and batched through the lineup solver; there are no Monte
-Carlo redraws or full-draft rollouts.
+Fixed seeds keep output deterministic. On the current 480-player input, pricing and 40
+complete rollouts take roughly ten seconds on one CPU.
 
 ## Output contract
 
@@ -72,11 +85,14 @@ Carlo redraws or full-draft rollouts.
 
 - `my_auction`: remaining dollars, slots, legal ceiling, and a projection-only roster
   completion diagnostic;
+- `purchase_strategy.recommendations`: recurring cost-efficient targets from full-auction
+  rollouts;
 - `nomination_strategy.recommendations`: the top positive drain gaps;
 - `teams`: actual purchases and current budget state for all 12 rosters;
-- `rankings`: available-player max bids, expected field prices, drain gaps, ranks, and
-  the top modeled opposing bidders;
-- `analysis`: pool bound, inflation, wire levels, and the pricing explanation;
+- `rankings`: available-player max bids, current field prices, rollout price ranges,
+  acquisition rates, drain gaps, ranks, and the top modeled opposing bidders;
+- `analysis`: pool bound, inflation, wire levels, rollout diagnostics, and the pricing
+  explanation;
 - `validation`: every-run contract and budget checks.
 
 Any validation problem makes `rank.py` exit nonzero.

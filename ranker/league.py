@@ -34,8 +34,9 @@ MIN_BID = 1
 ANALYSIS_POOL_MAX = 240
 ANALYSIS_WAIVER_BUFFER = TEAMS * 6
 
-# Plausible completed-auction depths used only to temper a field manager's bid after a
-# position is already full. My max bids never use these targets.
+# Plausible completed-auction depths. Field bids fall once a target is filled, and the
+# auction model refuses to go more than two players beyond one so rollouts cannot create
+# rosters dominated by a single position.
 AUCTION_POSITION_TARGETS = {"QB": 2, "RB": 4, "WR": 6, "TE": 2}
 
 # Most restrictive slot first: a dedicated slot is always the cheapest place to put a

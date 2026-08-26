@@ -49,6 +49,7 @@ h2 { font:750 18px/1.2 Georgia,serif; margin:28px 0 5px; }
 .price strong { display:block; font-size:19px; line-height:1.1; }
 .price span { color:var(--muted); font-size:10px; text-transform:uppercase; }
 .price.drain strong { color:var(--accent); }
+.price.value strong { color:var(--good); }
 .bidder { margin-top:8px; color:var(--muted); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .metrics { grid-template-columns:repeat(5,minmax(150px,1fr)); margin-top:12px; }
 .metric { border:1px solid var(--line); border-radius:9px; background:var(--surface); padding:11px 12px; }
@@ -61,7 +62,7 @@ h2 { font:750 18px/1.2 Georgia,serif; margin:28px 0 5px; }
 .filter { border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--ink); padding:5px 10px; cursor:pointer; }
 .filter[aria-pressed="true"] { background:var(--ink); border-color:var(--ink); color:var(--page); }
 .table-wrap { overflow:auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
-table { width:100%; border-collapse:collapse; min-width:940px; }
+table { width:100%; border-collapse:collapse; min-width:1120px; }
 th { position:sticky; top:0; z-index:1; background:var(--surface2); color:var(--muted); text-align:left;
   font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; }
 th,td { padding:8px 9px; border-bottom:1px solid var(--line); }
@@ -114,6 +115,13 @@ footer { margin-top:28px; color:var(--muted); font-size:12px; }
     </section>
 
     <section>
+      <h2>Best values to pursue</h2>
+      <div class="hint">Players this roster repeatedly acquires in complete simulated auctions—not promises that they will remain available.</div>
+      <div class="grid nomination-grid" id="purchaseGrid"></div>
+      <details><summary>How value targets are estimated</summary><p id="purchaseNote"></p></details>
+    </section>
+
+    <section>
       <h2 id="myTitle">My auction</h2>
       <div class="grid metrics" id="myMetrics"></div>
       <div class="roster" id="myRoster"></div>
@@ -131,6 +139,8 @@ footer { margin-top:28px; color:var(--muted); font-size:12px; }
             <th class="num" title="Stop bidding after this amount">Maximum bid</th>
             <th class="num" title="Modeled open-auction closing price from opponent max bids">Field price</th>
             <th class="num" title="Field price minus your maximum bid; positive is a nomination target">Drain gap</th>
+            <th class="num" title="10th–90th percentile closing-price range across complete auction rollouts">Rollout price</th>
+            <th class="num" title="Share of complete rollouts where your policy acquired the player">Roster rate</th>
             <th class="num" title="Consensus provider rank in the full projection pool">Field rank</th>
           </tr></thead>
           <tbody id="boardBody"></tbody>
@@ -167,6 +177,7 @@ const h = (tag, attrs = {}, ...children) => {
 };
 const money = value => value == null ? "—" : `$${Number(value).toLocaleString("en-US", {maximumFractionDigits:0})}`;
 const fmt = value => value == null ? "—" : Number(value).toLocaleString("en-US", {maximumFractionDigits:1});
+const pct = value => value == null ? "—" : `${Math.round(Number(value)*100)}%`;
 const signedMoney = value => value == null ? "—" : `${value > 0 ? "+" : value < 0 ? "−" : ""}$${Math.abs(value)}`;
 const positionChip = pos => h("span", {class:`chip ${pos}`}, pos);
 const metric = (value, label) => h("div", {class:"metric"}, h("strong", {}, value), h("span", {}, label));
@@ -222,6 +233,20 @@ function renderNominations(d) {
   $("nominationGrid").replaceChildren(...(cards.length ? cards : [h("div", {class:"card note"}, "No positive drain gap at this draft state.")]));
 }
 
+function renderPurchases(d) {
+  $("purchaseNote").textContent = d.purchase_strategy.note;
+  const cards = d.purchase_strategy.recommendations.slice(0,8).map((row,index) =>
+    h("article", {class:"card"},
+      h("div", {class:"eyebrow"}, index === 0 ? "Most common target" : `Alternative ${index}`),
+      h("div", {class:"player-name"}, row.name, " ", positionChip(row.position)),
+      h("div", {class:"price-row"},
+        h("div", {class:"price"}, h("strong", {}, money(row.max_bid)), h("span", {}, "My max now")),
+        h("div", {class:"price value"}, h("strong", {}, money(row.simulated_price_median)), h("span", {}, "Median rollout")),
+        h("div", {class:"price value"}, h("strong", {}, pct(row.simulated_roster_rate)), h("span", {}, "Roster rate"))),
+      h("div", {class:"bidder"}, `Rollout range ${money(row.simulated_price_low)}–${money(row.simulated_price_high)} · average paid ${money(row.simulated_purchase_price)}`)));
+  $("purchaseGrid").replaceChildren(...(cards.length ? cards : [h("div", {class:"card note"}, "No recurring value target at this draft state.")]));
+}
+
 function renderMine(d) {
   const mine = d.teams.find(team => team.is_mine);
   $("myTitle").textContent = `My auction · ${d.my_auction.team}`;
@@ -242,7 +267,7 @@ function renderBoard(d,state) {
   if (state.nomination) rows = rows.filter(row => row.nomination_edge > 0);
   const shown = state.all ? rows : rows.slice(0,40);
   $("boardBody").replaceChildren(...shown.map(row => {
-    const bidders = row.top_field_bidders.map(bidder => `${bidder.team}: ${money(bidder.max_bid)}`).join("\n");
+    const bidders = row.top_field_bidders.map(bidder => `${bidder.team}: ${money(bidder.max_bid)} (${bidder.source_id})`).join("\n");
     const gapClass = row.nomination_edge > 0 ? "positive" : row.nomination_edge < 0 ? "negative" : "";
     return h("tr", {},
       h("td", {class:"num rank"}, row.rank),
@@ -254,6 +279,8 @@ function renderBoard(d,state) {
       h("td", {class:"num max-bid"}, money(row.max_bid)),
       h("td", {class:"num", title:bidders}, money(row.field_price)),
       h("td", {class:`num ${gapClass}`}, signedMoney(row.nomination_edge)),
+      h("td", {class:"num"}, `${money(row.simulated_price_low)}–${money(row.simulated_price_high)}`),
+      h("td", {class:"num"}, pct(row.simulated_roster_rate)),
       h("td", {class:"num"}, row.field_rank));
   }));
   $("boardHint").textContent = `${d.rankings_note} ${d.analysis.players_examined} examined now; ${d.analysis.available_pool_players} projected players remain available in the full source pool.`;
@@ -318,7 +345,7 @@ $("refreshBtn").addEventListener("click",async()=>{
   $("subline").textContent=`${d.draft.league_name} · ${d.league.teams}-team superflex · ${money(d.league.budget)} budget · board ${asOf}`;
   const state={position:"ALL",nomination:false,all:false};
   const rerender=()=>{renderFilters(state,rerender);renderBoard(d,state);};
-  renderSnapshot(d); renderNominations(d); renderMine(d); rerender(); renderLeague(d);
+  renderSnapshot(d); renderNominations(d); renderPurchases(d); renderMine(d); rerender(); renderLeague(d);
   $("showMore").addEventListener("click",()=>{state.all=!state.all;renderBoard(d,state);});
   $("footer").replaceChildren(`${d.value_input} · provider snapshot ${new Date(d.provider_snapshot).toLocaleDateString()} · `,
     h("a",{href:"data_source_investigator/"},"opponent source evidence"));

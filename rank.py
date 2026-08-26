@@ -6,10 +6,11 @@
     uv run rank.py --no-draft
     uv run rank.py --selftest
 
-The ranker is deliberately deterministic and small enough to recompute during a timed
-auction. It examines at most 240 available players, values each against my current
-roster, converts marginal lineup value into a hard maximum bid under my remaining
-budget, and estimates the field price from opponent boards, rosters, and budgets.
+The ranker uses fixed seeds so it is reproducible and small enough to recompute during a
+timed auction. It examines at most 240 available players, values each against my current
+roster, converts marginal lineup value into a hard maximum bid under my remaining budget,
+estimates the field price from opponent boards, rosters, and budgets, and rolls out the
+remaining auction to find recurring cost-efficient targets.
 """
 
 from __future__ import annotations
@@ -100,6 +101,21 @@ def main(argv: list[str] | None = None) -> int:
             f"{payload['analysis']['field_inflation']:.3f}",
             file=sys.stderr,
         )
+        simulation = payload["analysis"]["simulation"]
+        print(
+            f"simulation: {simulation['completed']}/{simulation['simulations']} legal "
+            f"auctions; my mean lineup {simulation['my_projected_lineup_points']['mean']}, "
+            f"mean spend ${simulation['my_spend']['mean']}",
+            file=sys.stderr,
+        )
+        print("pursue:", file=sys.stderr)
+        for row in payload["purchase_strategy"]["recommendations"][:5]:
+            print(
+                f"  {row['name']:<24} rostered {row['simulated_roster_rate']:.0%}; "
+                f"rollout ${row['simulated_price_low']}-${row['simulated_price_high']} "
+                f"(my max ${row['max_bid']})",
+                file=sys.stderr,
+            )
         print("nominate:", file=sys.stderr)
         for row in payload["nomination_strategy"]["recommendations"][:5]:
             print(

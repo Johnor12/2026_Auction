@@ -12,6 +12,8 @@ The two live decisions are:
   remaining market are accounted for.
 - **Nominate next:** players whose modeled field price is above our maximum bid, ordered
   by the dollars they should drain from opponents.
+- **Pursue:** cost-efficient players that repeatedly land on our roster in complete
+  simulated auctions, with closing-price ranges and acquisition rates.
 
 ## League assumptions
 
@@ -57,28 +59,41 @@ The published files have distinct owners:
   and remaining budgets; auctions have no fabricated pending pick order
 - `data_source_matches.json`: the provider board closest to each opponent's purchases;
   it is a valid cold-start document with no owners before the first purchase
-- `rankings.json`: bid ceilings, field prices, nomination recommendations, team budgets,
-  and validation results
+- `rankings.json`: bid ceilings, field prices, rollout price ranges and roster rates,
+  pursue/nomination recommendations, team budgets, and validation results
 
 `sleeper_id` joins players across processes. `roster_id` is the auction team identity;
 `draft_slot` is not used as a future turn because an auction has no snake geometry.
 
 ## Auction pricing
 
-The ranker starts with the provider's 12-team, $200 auction dollar curve but does not copy
-its player values onto our board. Our projection-based preseason value rank determines
-where a player lands on that curve. The value is then discounted by the player's current
-marginal expected-lineup value relative to an empty roster, and adjusted for:
+Our maximum bid does not copy the provider's player prices. The ranker greedily completes
+our current roster by marginal expected-lineup value, then allocates every remaining
+discretionary dollar across that completion value. Each available player's current
+marginal value receives the same point-to-dollar rate. The result is capped by the hard
+legal ceiling that reserves $1 for every other open slot.
 
-- our current roster and the projected post-draft waiver level;
-- actual league dollars and roster spots remaining (market inflation);
-- our dollars-per-open-slot pace relative to the league;
-- the hard legal ceiling that reserves $1 for every other open slot.
+The FantasyPros 12-team, $200 curve supplies only the field's dollar scale. Each opponent
+maps its inferred provider order onto that curve, with roster depth, remaining budget,
+live inflation, and stable owner/player evaluation noise. Before purchases reveal an
+owner's likely source, cold-start owners are spread across the available public boards;
+the assignments and noise are deterministic so refreshes do not make the live board jump.
+An open ascending auction is modeled to close one dollar above the second-highest legal
+opponent ceiling, capped by the highest. `field_price - max_bid` is the nomination drain
+gap.
 
-The field model gives every opponent a ceiling from its inferred provider order, roster
-depth, remaining budget, and the same live inflation. An open ascending auction is modeled
-to close one dollar above the second-highest opponent ceiling, capped by the highest.
-`field_price - max_bid` is the nomination drain gap.
+The ranker also rolls out 40 complete auctions. Nomination order, cold-start source
+assignments, and opponent evaluation noise vary per rollout. Our policy repeatedly
+revalues the remaining completion and bids projection-valued dollars; it is a practical
+sequential policy, not a clairvoyant global optimizer. Each player's 10th–90th percentile
+closing-price range and the fraction of rollouts in which we acquire him drive the
+**Pursue** list. This directly represents the chance that a later bargain is gone or no
+longer cheap.
+
+Every simulated purchase preserves enough slots to fill the dedicated starter groups.
+The model also refuses additions beyond two players over its plausible completed-roster
+position target; that is a guard against simulated 9-RB or 11-WR rosters, not a Sleeper
+league rule.
 
 ### Live-speed limit
 
@@ -87,9 +102,9 @@ candidates per team. As the draft fills, the board shrinks to the number of purc
 still needed plus the same 72-player waiver buffer. Drafted players outside that analysis
 horizon still count on their roster and against their team's budget.
 
-The pricing path is deterministic and contains no Monte Carlo or full-draft rollout. On
-the current 480-player source pool the pricing pass runs in a fraction of a second; the
-network-bound full refresh is normally the slower part.
+The published board remains deterministic because the rollouts use a fixed seed. On the
+current 480-player source pool, pricing plus 40 complete rollouts takes roughly ten
+seconds on a single CPU; the network-bound full refresh can still be slower.
 
 ## Components
 
