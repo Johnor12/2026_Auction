@@ -35,7 +35,7 @@ def build_rankings(
     Two simulations are reported per player, and they answer different questions:
       * `sim_pick` is from the single deterministic draft, no noise.
       * `sim_adp` / `p_drafted` / `p_available_at_my_picks` come from the noisy redraws
-        (adherence-calibrated draws over their provider ranks) and measure the other nine
+        (adherence-calibrated draws over their provider ranks) and measure the other eleven
         teams' demand only. My own simulated picks are this policy's behaviour, not market
         pressure — counting them as takes reported the model's own favourite stashes as
         scarce — but a redraw where I took him early also observes no opponent demand
@@ -133,7 +133,7 @@ def build_rankings(
                 "provider_adp": p.provider_adp,
                 "opponent_consensus_rank": opponent_rank[p.player_id],
                 # Positive means my board values him earlier than the average of the
-                # nine slot-specific provider boards actually used in the simulations.
+                # eleven slot-specific provider boards actually used in the simulations.
                 "opponent_rank_delta": opponent_rank[p.player_id] - i,
             }
         )

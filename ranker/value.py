@@ -98,11 +98,11 @@ def insert_sorted(seq: list[Player], p: Player, h: str) -> list[Player]:
 # --- expected lineup solver -------------------------------------------------------
 
 # The position-flexible starting seats beyond the dedicated slots. The max(m, q)
-# closed form and the unrolled integrand in `_extra_expected_value` assume exactly
-# one superflex seat and two flex seats.
+# closed form in `_extra_expected_value` assumes exactly one superflex seat; the
+# flex count is free.
 _FLEX_SLOTS = STARTING_SLOTS["FLEX"]
 _EXTRA_SLOTS = _FLEX_SLOTS + STARTING_SLOTS["SF"]
-assert STARTING_SLOTS["SF"] == 1 and _FLEX_SLOTS == 2
+assert STARTING_SLOTS["SF"] == 1
 
 
 @lru_cache(maxsize=32_768)
@@ -220,40 +220,41 @@ def _extra_expected_value(
         E[top-F sum]        = integral of E[min(F, N(>t))]
         E[max(next, qb)]    = integral of 1 - P(N(>t) <= F) * F_q(t)
     Both integrands are piecewise constant between body values and zero past the last.
-    The convolution is unrolled for this league's F = 2: only pooled cells 0-2 are
-    needed, since E[min(2, N)] = p1 + 2(1 - p0 - p1) and P(N <= 2) = p0 + p1 + p2.
+    Only pooled cells 0..F are needed — E[min(F, N)] = F - sum_{j<F} (F - j) p_j and
+    P(N <= F) = p_0 + ... + p_F — so the convolution is truncated there.
     """
+    flex = _FLEX_SLOTS
+    cells = flex + 1
+    weights = tuple(float(flex - j) for j in range(flex))
     qb_brks, qb_rows = qb_table
-    (a_brks, a_rows), (b_brks, b_rows), (c_brks, c_rows) = flex_tables
-    all_breaks = sorted({*qb_brks, *a_brks, *b_brks, *c_brks})
-    nq, na, nb, nc = len(qb_brks), len(a_brks), len(b_brks), len(c_brks)
-    iq = ia = ib = ic = 0
-    one = (1.0, 0.0, 0.0, 0.0)
+    brks = tuple(table[0] for table in flex_tables)
+    rows = tuple(table[1] for table in flex_tables)
+    sizes = tuple(len(b) for b in brks)
+    idx = [0] * len(flex_tables)
+    one = (1.0,) + (0.0,) * flex
+    all_breaks = sorted({*qb_brks, *(b for bs in brks for b in bs)})
+    nq = len(qb_brks)
+    iq = 0
     total = 0.0
     prev = 0.0
     for x in all_breaks:
         while iq < nq and qb_brks[iq] < x:
             iq += 1
-        while ia < na and a_brks[ia] < x:
-            ia += 1
-        while ib < nb and b_brks[ib] < x:
-            ib += 1
-        while ic < nc and c_brks[ic] < x:
-            ic += 1
         f_q = qb_rows[iq][0] if iq < nq else 1.0
-        a0, a1, a2, _ = a_rows[ia] if ia < na else one
-        b0, b1, b2, _ = b_rows[ib] if ib < nb else one
-        c0, c1, c2, _ = c_rows[ic] if ic < nc else one
-        t0 = a0 * b0
-        t1 = a0 * b1 + a1 * b0
-        t2 = a0 * b2 + a1 * b1 + a2 * b0
-        p0 = t0 * c0
-        p1 = t0 * c1 + t1 * c0
-        p2 = t0 * c2 + t1 * c1 + t2 * c0
-        total += (x - prev) * (2.0 - 2.0 * p0 - p1 + 1.0 - (p0 + p1 + p2) * f_q)
+        pooled = one
+        for k in range(len(flex_tables)):
+            while idx[k] < sizes[k] and brks[k][idx[k]] < x:
+                idx[k] += 1
+            row = rows[k][idx[k]] if idx[k] < sizes[k] else one
+            nxt = [0.0] * cells
+            for i, p_i in enumerate(pooled):
+                for j in range(cells - i):
+                    nxt[i + j] += p_i * row[j]
+            pooled = nxt
+        top_f = flex - sum(w * p for w, p in zip(weights, pooled))
+        total += (x - prev) * (top_f + 1.0 - sum(pooled) * f_q)
         prev = x
     return total
-
 
 def _position_tables(
     projections: tuple[tuple[int, float], ...], wire_points: float, pos: str
@@ -292,7 +293,7 @@ def expected_lineup_value(
 
 
 def starting_positions(roster: list[Player], h: str) -> list[str]:
-    """Which positions fill the 10 slots when a team must field everyone it can, per horizon.
+    """Which positions fill the lineup when a team must field everyone it can, per horizon.
 
     The horizon decides the pecking order into the flex slots. Validation uses this to
     check every simulated roster can field a full lineup.
@@ -405,9 +406,9 @@ def _rep_at_rank(pos_players: list[Player], rank: int, h: str) -> float:
 def seed_wire(players: list[Player]) -> dict[str, dict[str, float]]:
     """Iteration-0 wire levels from pure slot counting, no draft behaviour assumed.
 
-    Per horizon: assign the top of the pool to the league's 100 starting slots the way a
+    Per horizon: assign the top of the pool to the league's 108 starting slots the way a
     perfectly efficient market would — dedicated slots by that horizon's positional rank,
-    then the 20 flex slots and 10 superflex slots to the best players still eligible —
+    then the 12 flex slots and 12 superflex slots to the best players still eligible —
     and take the best player at each position who did not earn a slot. Convergence
     replaces this with the best player actually left undrafted (`wire_replacement`).
     """
@@ -431,8 +432,8 @@ def wire_replacement(
 ) -> dict[str, dict[str, float]]:
     """The best player at each position actually left undrafted, per horizon.
 
-    Far below starting caliber: 290 of 350 pool players get rostered, so the wire is
-    picked clean. It answers "how much better is he than what I could sign for nothing
+    In this league only 168 of ~440 pool players get rostered, so the wire holds real
+    bodies. It answers "how much better is he than what I could sign for nothing
     after the draft", and contributes one unique, always-available body per position to
     expected lineup value. The best year-1 add and the best years-2-3 stash can be
     different players, so each horizon takes its own max.

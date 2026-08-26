@@ -9,8 +9,9 @@ import datetime as dt
 #: Formats a board can be laid out for. An auction has no pick order to derive.
 SUPPORTED_TYPES = ("snake", "linear")
 
-#: Expected position-in-round for draft slot 2 before trades. The report checks the
-#: documented geometry, while the live derivation check above validates made picks.
+#: Slot 2's position-in-round in the 2025 dynasty draft (10 teams, 29 rounds, reversal
+#: at 3), kept as the self-test's known-good snake geometry. The 2026 draft is an
+#: auction, which has no slot geometry to document.
 DOCUMENTED_SLOT_2_PICK_IN_ROUND = {1: 2, 2: 9, 3: 9, 4: 2, 5: 9, 6: 2, 28: 2, 29: 9}
 
 FIELD_DEFINITIONS = {

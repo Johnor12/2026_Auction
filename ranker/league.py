@@ -1,29 +1,32 @@
 """This league's shape (from README.md) and the strategy constants.
 
-10 teams, 0.5 PPR + 0.5 TE premium, superflex. Starters are 1 QB / 2 RB / 3 WR / 1 TE /
-2 W-R-T / 1 W-R-T-Q = 10. Then 15 bench and 4 rookie-only taxi spots = 29 draftable
-roster spots = 29 rounds = 290 picks. Snake with a 3rd-round reversal. My slot is 1.02.
+12 teams, 0.5 PPR, no TE premium, superflex. Starters are 1 QB / 2 RB / 3 WR / 1 TE /
+1 W-R-T / 1 W-R-T-Q = 9. Then 5 bench = 14 draftable roster spots = 14 rounds = 168
+picks; the 2 IR spots are not draftable and there is no taxi squad. Sleeper runs this
+draft as an auction, which has no pick order. Until that rework lands the ranker plays a
+plain snake (no reversal) with me in slot 2, a placeholder carried over from the 2025
+snake.
 """
 
 from __future__ import annotations
 
-SCHEME = "half_ppr_te_premium_superflex"
+SCHEME = "half_ppr_superflex"
 HORIZON = "3yr"
 POINTS_FIELD = f"points_{HORIZON}"  # the one value column in pool.json
 POSITIONS = ("QB", "RB", "WR", "TE")
 
-TEAMS = 10
-MY_SLOT = 2  # 1.02
-STARTING_SLOTS = {"QB": 1, "RB": 2, "WR": 3, "TE": 1, "FLEX": 2, "SF": 1}
+TEAMS = 12
+MY_SLOT = 2  # placeholder: an auction has no draft slot; carried over from the 2025 snake
+STARTING_SLOTS = {"QB": 1, "RB": 2, "WR": 3, "TE": 1, "FLEX": 1, "SF": 1}
 # Slots no other position can cover, so every roster must end up with at least these.
 DEDICATED_SLOTS = {"QB": 1, "RB": 2, "WR": 3, "TE": 1}
-BENCH_SLOTS = 15
-TAXI_SLOTS = 4  # rookie-only
+BENCH_SLOTS = 5
+TAXI_SLOTS = 0  # no taxi squad, so the rookie-only veteran cap is inert
 # The taxi spots are rookie-only, so this is also the most veterans a roster can hold.
-NON_TAXI_SLOTS = sum(STARTING_SLOTS.values()) + BENCH_SLOTS  # 25
-ROSTER_SLOTS = NON_TAXI_SLOTS + TAXI_SLOTS  # 29
+NON_TAXI_SLOTS = sum(STARTING_SLOTS.values()) + BENCH_SLOTS  # 14
+ROSTER_SLOTS = NON_TAXI_SLOTS + TAXI_SLOTS  # 14
 ROUNDS = ROSTER_SLOTS
-TOTAL_PICKS = TEAMS * ROUNDS  # 290
+TOTAL_PICKS = TEAMS * ROUNDS  # 168
 
 # Most restrictive slot first: a dedicated slot is always the cheapest place to put a
 # player, which is what lets the greedy lineup solver be exact; --selftest checks that
@@ -71,9 +74,10 @@ LOOKAHEAD_PICKS = 4
 # the boost fades linearly as that position's dedicated starters are filled.
 OPPONENT_BALANCE_STRENGTH = 2.0
 # Opponents become increasingly reluctant to add players beyond these comfortable depths.
-# These sum to 25, leaving four picks to spill into their source board rather than
-# prescribing one exact roster shape. My slot never uses this heuristic.
-OPPONENT_DEPTH_TARGETS = {"QB": 3, "RB": 8, "WR": 11, "TE": 3}
+# These sum to 12, leaving two picks to spill into their source board rather than
+# prescribing one exact roster shape. Rescaled by roster size from the 29-man dynasty
+# league's 3/8/11/3, not re-fitted to this league. My slot never uses this heuristic.
+OPPONENT_DEPTH_TARGETS = {"QB": 2, "RB": 4, "WR": 5, "TE": 1}
 OPPONENT_DEPTH_PENALTY = 2.0
 # Flat source-rank multiplier per position; < 1 pulls the position up an opponent's
 # board. Opponents throw RB darts beyond what any source board or the need model above
@@ -97,16 +101,14 @@ SEED = 20260804
 
 
 def draft_order(teams: int = TEAMS, rounds: int = ROUNDS) -> list[int]:
-    """Slot (1-based) picking at each overall pick. Snake with a 3rd-round reversal.
+    """Slot (1-based) picking at each overall pick. Plain snake, no reversal.
 
-    Round 1 forward, rounds 2 and 3 both reverse (that is the reversal), then the snake
-    resumes: even rounds forward, odd rounds reverse. Pinned to the README's stated picks
-    for slot 2 (1.02, 2.09, 3.09, 4.02, 5.09, 6.02, ..., 28.02, 29.09) in validate().
+    Odd rounds forward, even rounds reverse. Pinned to the README's stated picks for
+    slot 2 (1.02, 2.11, 3.02, 4.11, 5.02, 6.11, ..., 13.02, 14.11) in validate().
     """
     order: list[int] = []
     for rnd in range(1, rounds + 1):
-        forward = rnd == 1 or (rnd >= 4 and rnd % 2 == 0)
-        order.extend(range(1, teams + 1) if forward else range(teams, 0, -1))
+        order.extend(range(1, teams + 1) if rnd % 2 == 1 else range(teams, 0, -1))
     return order
 
 

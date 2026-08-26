@@ -166,10 +166,10 @@ def main(argv: list[str] | None = None) -> int:
     payload = {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
         "league_format": {
-            "teams": 10,
+            "teams": 12,
             "type": "dynasty superflex",
             "ppr": 0.5,
-            "te_reception_bonus": 0.5,
+            "te_reception_bonus": 0.0,
         },
         "source_count": len(sources),
         "sources": sources,

@@ -79,12 +79,13 @@ def opponent_selftest(players: list[Player]) -> list[str]:
     fails: list[str] = []
     board = fresh_board()
     wire = seed_wire(players)
+    opp = board.my_slot % TEAMS + 1  # the slot after mine: any opponent will do
     # Put the lowest-projected player first on every external board. An opponent must take
     # him; my optimizer must not, demonstrating that candidate generation is separated too.
     external = sorted(players, key=lambda p: (p.points, p.player_id))
     opponents = synthetic_opponents(players, board, external)
     draft = Draft(players, wire, board, opponents=opponents)
-    opponent_take = draft.choose_opponent(0, 1)
+    opponent_take = draft.choose_opponent(0, opp)
     my_take = draft.choose(1, board.my_slot)
     if opponent_take != external[0]:
         fails.append("opponent ignored the top player on its inferred source board")
@@ -97,8 +98,8 @@ def opponent_selftest(players: list[Player]) -> list[str]:
     wrs = [p for p in players if p.position == "WR"]
     te = next(p for p in players if p.position == "TE")
     board = fresh_board()
-    board.rosters[0] = wrs[:3]
-    board.picks_left[0] -= 3
+    board.rosters[opp - 1] = wrs[:3]
+    board.picks_left[opp - 1] -= 3
 
     def complete(prefix: list[Player]) -> list[Player]:
         ids = {p.player_id for p in prefix}
@@ -111,7 +112,7 @@ def opponent_selftest(players: list[Player]) -> list[str]:
         board,
         opponents=synthetic_opponents(players, board, close_order),
     )
-    if close.choose_opponent(0, 1) != te:
+    if close.choose_opponent(0, opp) != te:
         fails.append("opponent did not prefer a close TE with the TE starter unfilled")
 
     value_order = complete([wrs[3], wrs[4], wrs[5], te])
@@ -121,7 +122,7 @@ def opponent_selftest(players: list[Player]) -> list[str]:
         board,
         opponents=synthetic_opponents(players, board, value_order),
     )
-    if value.choose_opponent(0, 1) != wrs[3]:
+    if value.choose_opponent(0, opp) != wrs[3]:
         fails.append("opponent balance preference overrode too large a source-rank gap")
 
     adjustments = value.opponent_position_adjustments(1)
@@ -131,8 +132,8 @@ def opponent_selftest(players: list[Player]) -> list[str]:
     # Once a roster reaches comfortable WR depth, another WR's adjusted source rank is
     # doubled against other positions. This is a preference, not a positional limit.
     board = fresh_board()
-    board.rosters[0] = wrs[: OPPONENT_DEPTH_TARGETS["WR"]]
-    board.picks_left[0] -= len(board.rosters[0])
+    board.rosters[opp - 1] = wrs[: OPPONENT_DEPTH_TARGETS["WR"]]
+    board.picks_left[opp - 1] -= len(board.rosters[opp - 1])
     depth_order = complete([wrs[OPPONENT_DEPTH_TARGETS["WR"]], te])
     depth = Draft(
         players,
@@ -140,7 +141,7 @@ def opponent_selftest(players: list[Player]) -> list[str]:
         board,
         opponents=synthetic_opponents(players, board, depth_order),
     )
-    if depth.choose_opponent(0, 1) != te:
+    if depth.choose_opponent(0, opp) != te:
         fails.append("opponent did not prefer close TE over excessive WR depth")
 
     start = OPPONENT_DEPTH_TARGETS["WR"]
@@ -151,7 +152,7 @@ def opponent_selftest(players: list[Player]) -> list[str]:
         board,
         opponents=synthetic_opponents(players, board, depth_value_order),
     )
-    if depth_value.choose_opponent(0, 1) != wrs[start]:
+    if depth_value.choose_opponent(0, opp) != wrs[start]:
         fails.append("opponent depth preference acted like a hard positional limit")
     if depth.opponent_depth_penalty(wrs[: start - 1], (), "WR") != 1.0:
         fails.append("opponent depth preference started before its target")
@@ -568,7 +569,7 @@ def synthetic_draft(
         "draft_id": "synthetic",
         "league_name": "selftest",
         "status": "drafting",
-        "format": {"type": "snake", "teams": TEAMS, "rounds": ROUNDS, "reversal_round": 3},
+        "format": {"type": "snake", "teams": TEAMS, "rounds": ROUNDS, "reversal_round": 0},
         "pick_count": TOTAL_PICKS,
         "picks_made": made,
         "picks_pending": TOTAL_PICKS - made,
@@ -595,7 +596,7 @@ def board_selftest(players: list[Player]) -> list[str]:
     fresh = fresh_board()
     check(not problems, f"empty synthetic board complained: {problems}")
     check(board.order == fresh.order, "empty live board's order != the static snake")
-    check(board.pick_nos == fresh.pick_nos, "empty live board's pick numbers != 1..290")
+    check(board.pick_nos == fresh.pick_nos, "empty live board's pick numbers != 1..168")
     check(board.my_picks == fresh.my_picks, "empty live board's picks for me != the snake's")
     check(board.picks_left == fresh.picks_left, f"picks left {board.picks_left} != all {ROUNDS}")
     check(not board.taken and board.picks_made == 0, "empty live board has players drafted")
@@ -605,15 +606,15 @@ def board_selftest(players: list[Player]) -> list[str]:
     check(not problems, f"13-pick board complained: {problems}")
     check(board.picks_made == 13 and len(board.taken) == 13, "13 made picks did not come through")
     check(board.pick_nos[:1] == [14], f"simulation resumes at {board.pick_nos[:1]}, want 14")
-    check(board.my_picks[:1] == [19], f"my next pick is {board.my_picks[:1]}, want 19 (2.09)")
+    check(board.my_picks[:1] == [23], f"my next pick is {board.my_picks[:1]}, want 23 (2.11)")
     check(
         [p.name for p in board.rosters[MY_SLOT - 1]] == [players[1].name],
         "pick 1.02 did not land on my roster",
     )
     check(board.picks_left[MY_SLOT - 1] == ROUNDS - 1, "my remaining picks did not drop by one")
     check(sum(board.picks_left) == TOTAL_PICKS - 13, "remaining picks do not sum to the board")
-    # Picks 10 and 11 are both slot 10 — the turn at the end of round 1 into round 2.
-    check(len(board.rosters[9]) == 2, "slot 10 did not get both sides of its turn")
+    # Picks 12 and 13 are both slot 12 — the turn at the end of round 1 into round 2.
+    check(len(board.rosters[11]) == 2, "slot 12 did not get both sides of its turn")
 
     # A traded pick is exercised by the roster that acquired it, not by its column.
     board, problems = load_board(
@@ -621,8 +622,8 @@ def board_selftest(players: list[Player]) -> list[str]:
     )
     check(board.order[4] == MY_SLOT, f"traded pick 5 is exercised by slot {board.order[4]}")
     check(
-        board.my_picks[:3] == [2, 5, 19],
-        f"my picks start {board.my_picks[:3]}, want my own 1.02, the traded 5, then 2.09",
+        board.my_picks[:3] == [2, 5, 23],
+        f"my picks start {board.my_picks[:3]}, want my own 1.02, the traded 5, then 2.11",
     )
     check(
         board.picks_left[MY_SLOT - 1] == ROUNDS + 1 and board.picks_left[4] == ROUNDS - 1,
@@ -687,8 +688,8 @@ def board_selftest(players: list[Player]) -> list[str]:
         check(bool(problems), f"a board with {about} was accepted without complaint")
 
     raw = synthetic_draft(players, made=2)
-    raw["format"]["teams"] = 12
-    complains(raw, "12 teams")
+    raw["format"]["teams"] = TEAMS + 2
+    complains(raw, f"{TEAMS + 2} teams")
     raw = synthetic_draft(players, made=3)
     raw["picks"][2] |= {
         "sleeper_id": raw["picks"][0]["sleeper_id"],
@@ -712,7 +713,7 @@ def board_selftest(players: list[Player]) -> list[str]:
 
     print(
         "  live board: static snake reproduced, made picks retained, traded pick and "
-        "unvalued pick handled, 233 pending picks resumed, 6 bad boards rejected",
+        f"unvalued pick handled, {TOTAL_PICKS - 57} pending picks resumed, 6 bad boards rejected",
         file=sys.stderr,
     )
     return fails

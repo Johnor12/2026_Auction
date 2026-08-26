@@ -47,9 +47,9 @@ Jones), and is dropped automatically once the provider publishes a real row.
 - `sleeper_id`: the join key used by the live draft and investigator
 - `rank`: descending `points_3yr`, with provider dynasty rank breaking ties
 
-For WR/RB/QB, league points come from DraftSharks' half-PPR projection. For TE, they come
-from its PPR projection: 0.5 base PPR plus this league's 0.5 TE premium equals 1.0 per TE
-reception. DraftSharks' named TE-premium column is 1.5 TE PPR and is not this league.
+For every position, league points come from DraftSharks' half-PPR projection: 0.5 per
+reception with no TE premium. The league's -2 per interception is not a published
+provider column, so QB points carry the provider's own interception assumption.
 
 ## Sleeper matching
 

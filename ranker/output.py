@@ -190,7 +190,7 @@ def build_payload(
             "taxi_slots": TAXI_SLOTS,
             "rounds": ROUNDS,
             "total_picks": TOTAL_PICKS,
-            "draft_type": "snake with 3rd-round reversal",
+            "draft_type": "snake",
             "my_slot": board.my_slot,
             "my_picks": [pick_label(p) for p in picks_for_slot(board.my_slot, draft_order())],
         },
@@ -203,8 +203,7 @@ def build_payload(
                 "recommendation is taken earlier on this noiseless path, this block follows "
                 "the reported deterministic fallback instead. Made picks are "
                 "facts from the live board; every pending pick is the model drafting. Read "
-                "it for smells: position hoarding, a position left to the last rounds, "
-                "fewer than 4 rookies to fill the taxi spots."
+                "it for smells: position hoarding, a position left to the last rounds."
             ),
             "rosters": example_rosters(draft, board),
         },
@@ -268,7 +267,7 @@ def build_payload(
             else "The whole pool, from an empty board: no live draft was read."
         ),
         "opponent_model": {
-            "who": "the other nine teams; my slot alone uses projections and roster value",
+            "who": "the other eleven teams; my slot alone uses projections and roster value",
             "how": (
                 "Each opponent orders legal available players by the provider board most "
                 "associated with its completed picks in data_source_matches.json. Opponent "
@@ -282,7 +281,7 @@ def build_payload(
                 "targets": OPPONENT_DEPTH_TARGETS,
                 "penalty_per_extra_player": OPPONENT_DEPTH_PENALTY,
                 "note": (
-                    "Targets sum to 25, leaving four roster spots to spill into the best "
+                    "Targets sum to 12, leaving two roster spots to spill into the best "
                     "remaining positions. This adjusts opponent source rank only and is "
                     "not a draft limit or an input to my roster valuation."
                 ),
@@ -296,11 +295,11 @@ def build_payload(
             ),
             "coverage": (
                 "A provider's normalized players come first. Any pool player it does not "
-                "rank is appended in DraftSharks ADP order so all 290 picks remain possible; "
+                "rank is appended in DraftSharks ADP order so all 168 picks remain possible; "
                 "the fallback is still an external opponent board, never my personal board."
             ),
             "delta": (
-                "opponent_consensus_rank averages the nine managers' complete source "
+                "opponent_consensus_rank averages the eleven managers' complete source "
                 "orders, counting a source once per associated manager, then re-ranks the "
                 "available pool. opponent_rank_delta is opponent_consensus_rank - rank; "
                 "positive identifies players my board values earlier than the modeled "
@@ -372,7 +371,7 @@ def build_payload(
                 "each manager's observed mean log-rank loss before the balance adjustment; "
                 "noise=0 removes random variation but retains that adjustment. sim_pick is "
                 "from the noiseless draft; sim_adp, p_drafted and "
-                "p_available_at_my_picks are from these redraws and measure the other nine "
+                "p_available_at_my_picks are from these redraws and measure the other eleven "
                 "teams' demand only — my own "
                 "simulated picks are the policy under evaluation, not opponent demand. "
                 "p_available_at_my_picks is a Kaplan-Meier estimate (an opponent take is "

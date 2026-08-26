@@ -26,18 +26,18 @@ import paths
 TIMEOUT_SECONDS = 30
 USER_AGENT = "dynasty-data-source-investigator/0.1"
 
-# The league is 10-team, superflex, half PPR, with an extra half point for TE
-# receptions. Providers expose different subsets of those settings; the exact
-# format requested from each one is carried into rankings.json.
+# The league is 12-team, superflex, half PPR, no TE premium. Providers expose
+# different subsets of those settings; the exact format requested from each one is
+# carried into rankings.json.
 SOURCES = {
     "fantasycalc": {
         "name": "FantasyCalc",
         "url": (
             "https://api.fantasycalc.com/values/current?"
-            "isDynasty=true&numQbs=2&numTeams=10&ppr=0.5&includeAdp=true"
+            "isDynasty=true&numQbs=2&numTeams=12&ppr=0.5&includeAdp=true"
         ),
         "file": "fantasycalc.json",
-        "format": "10-team dynasty superflex, 0.5 PPR; no TEP option in the public API",
+        "format": "12-team dynasty superflex, 0.5 PPR; no TEP option in the public API",
     },
     "keeptradecut": {
         "name": "KeepTradeCut",
@@ -46,13 +46,13 @@ SOURCES = {
             "filters=QB%7CWR%7CRB%7CTE&format=2&page=0"
         ),
         "file": "keeptradecut.html",
-        "format": "dynasty superflex, 0.5 PPR, TE+ (closest to this league's 0.5 TEP)",
+        "format": "dynasty superflex, 0.5 PPR, TE+ (this league has no TEP)",
     },
     "dynastynerds": {
         "name": "Dynasty Nerds",
         "url": "https://www.dynastynerds.com/dynasty-rankings/sf-tep/",
         "file": "dynastynerds.html",
-        "format": "dynasty superflex TE premium consensus",
+        "format": "dynasty superflex TE premium consensus (this league has no TEP)",
     },
     "fantasypros": {
         "name": "FantasyPros ECR",

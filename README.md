@@ -1,18 +1,27 @@
 # 2026 dynasty fantasy draft
 
-A toolkit for a 10-team superflex dynasty startup draft. Independent
-processes publish stable JSON artifacts at the repository root; the ranker consumes
-those artifacts and the static dashboard renders the result.
+A toolkit for the 12-team superflex draft of
+[Gnosis Auction 2026](https://sleeper.com/leagues/1396606685107200000/predraft).
+Independent processes publish stable JSON artifacts at the repository root; the ranker
+consumes those artifacts and the static dashboard renders the result.
+
+The league is a redraft with an auction draft; the toolkit still models a dynasty snake
+startup. That rework is pending, so the pick-order assumptions below are placeholders
+and `fetch_draft.py` refuses the auction draft until it lands.
 
 ## League assumptions
 
-- 0.5 PPR, plus another 0.5 points per TE reception
-- Starters: 1 QB, 2 RB, 3 WR, 1 TE, 2 W/R/T flex, 1 W/R/T/Q superflex
-- 15 bench, 3 IR, and 4 rookie-only taxi spots
-- 10 teams and 29 drafted players per team (290 picks)
-- Snake draft with a third-round reversal
-- Before trades, my slot is 1.02: 1.02, 2.09, 3.09, 4.02, 5.09, 6.02, …,
-  28.02, 29.09
+Discovered from the Sleeper API (league `1396606685107200000`, draft
+`1396606686923341824`).
+
+- 0.5 PPR, no TE premium; otherwise standard (4 / 0.04 passing, 6 / 0.1 rushing and
+  receiving, -2 per interception, -2 per lost fumble)
+- Starters: 1 QB, 2 RB, 3 WR, 1 TE, 1 W/R/T flex, 1 W/R/T/Q superflex
+- 5 bench, 2 IR, no taxi squad
+- 12 teams and 14 drafted players per team (168 picks)
+- Auction draft, $200 budget, no pick order. The ranker stands in a plain snake (no
+  reversal) with me in slot 2, a placeholder carried over from the 2025 snake: 1.02,
+  2.11, 3.02, 4.11, 5.02, 6.11, …, 13.02, 14.11
 
 These are project assumptions, not runtime configuration. Ranker constants live in
 `ranker/league.py`.
@@ -43,7 +52,7 @@ data_source_investigator/ ────> data_source_matches.json
 The published files have distinct owners:
 
 - `pool.json`: 350 projection-backed QB/RB/WR/TE players, keyed to Sleeper
-- `draft.json`: all 290 made and pending picks from Sleeper
+- `draft.json`: all 168 made and pending picks from Sleeper
 - `data_source_matches.json`: the provider board closest to each opponent's picks
 - `rankings.json`: undrafted-player rankings, recommendations, simulations, and validation
 

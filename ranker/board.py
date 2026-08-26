@@ -41,10 +41,10 @@ class Board:
     One type covers both cases so there is a single simulation path. `fresh_board()` is a
     board with nothing drafted and the static snake order; `load_board()` builds one from
     `draft.json`. The simulation only ever plays `order`, so an untouched board plays all
-    290 picks and a live one plays the pending tail.
+    168 picks and a live one plays the pending tail.
 
-    Teams are indexed by draft slot (1..10, minus one), because that is what `MY_SLOT` and
-    the reversal rule are expressed in. `order` holds the slot of the team that *receives*
+    Teams are indexed by draft slot (1..12, minus one), because that is what `MY_SLOT` and
+    the snake are expressed in. `order` holds the slot of the team that *receives*
     each remaining pick, which is the acquirer for a traded pick, so a trade shows up as a
     slot appearing at a board position that is not its own column.
     """
@@ -77,7 +77,7 @@ class Board:
 
 
 def fresh_board(my_slot: int = MY_SLOT) -> Board:
-    """An untouched board: the static snake, empty rosters, all 290 picks pending."""
+    """An untouched board: the static snake, empty rosters, all 168 picks pending."""
     order = draft_order()
     return Board(
         order=order,

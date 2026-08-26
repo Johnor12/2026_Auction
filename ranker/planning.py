@@ -261,7 +261,7 @@ def candidate_survival(
     those redraws, and for a player this policy likes it takes him early in most of them,
     which censors the opponents' demand exactly where the question matters. So each
     candidate gets his own redraws with my slot banned from ever taking him (`my_ban`) —
-    the other nine teams play exactly as in `monte_carlo` — and availability at my pick
+    the other eleven teams play exactly as in `monte_carlo` — and availability at my pick
     is simply "no opponent had taken him yet". Priced for my next pick's candidates only:
     one banned-me redraw set per player is too expensive for the whole board.
     """

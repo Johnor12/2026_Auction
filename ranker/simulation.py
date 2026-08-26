@@ -111,7 +111,7 @@ class Draft:
             raise ValueError(f"no source strategy for opponent slot(s) {sorted(missing)}")
         self.by_id = {p.player_id: p for p in players}
         # The fast survival approximation for my later picks needs one league-wide order.
-        # Average the nine source ranks, counting repeated sources once per manager. This
+        # Average the eleven source ranks, counting repeated sources once per manager. This
         # is only an approximation of the slot-specific policies; the decision in front
         # of me is priced by branch-specific Monte Carlo redraws instead.
         consensus_score = {
@@ -202,10 +202,11 @@ class Draft:
         a team punting a position — the earlier attempt distorted the value of an empty slot
         instead, which broke the board.
 
-        The 4 taxi spots are rookie-only, so at most 25 of a team's 29 players can be
-        veterans: once a team holds 25 non-rookies, only rookies are eligible. The cap is
-        on veterans, not on total bodies — a team that took its rookies early is free to
-        spend its last picks on veterans.
+        Taxi spots are rookie-only, so at most NON_TAXI_SLOTS of a team's players can be
+        veterans: once a team holds that many non-rookies, only rookies are eligible. The
+        cap is on veterans, not on total bodies — a team that took its rookies early is
+        free to spend its last picks on veterans. This league has no taxi spots, so the
+        cap is inert.
 
         `off` is the team's already-drafted players the pool cannot value. They count here
         and only here: they occupy a roster spot and they answer a mandatory position, so a

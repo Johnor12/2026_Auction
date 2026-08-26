@@ -60,7 +60,7 @@ def selftest() -> int:
           ["draft type 'auction' has no pick order to derive"])
     check("0 teams is refused", bool(Board(fake(teams=0)).problems()), True)
 
-    # This league, against the sequence README.md documents for slot 2.
+    # The 2025 dynasty draft's geometry, against the sequence its README documented.
     real = Board({"type": "snake", "settings": {"teams": 10, "rounds": 29, "reversal_round": 3}})
     mine = {r: p for n in range(1, 291) for r, p, s in [real.locate(n)] if s == 2}
     check(

@@ -32,7 +32,8 @@ from draft_board import (
 )
 from selftest import selftest as run_selftest
 
-DRAFT_ID = "1388293618208374784"
+# Gnosis Auction 2026: https://sleeper.com/leagues/1396606685107200000
+DRAFT_ID = "1396606686923341824"
 MY_USERNAME = "johnor"
 API = "https://api.sleeper.app/v1"
 TIMEOUT_SECONDS = 30

@@ -1,7 +1,7 @@
 [project]
 name = "dynasty-draft-2026"
 version = "0.1.0"
-description = "Draft pool, live board, and VOR rankings for a 10-team superflex dynasty league"
+description = "Draft pool, live board, and VOR rankings for a 12-team superflex dynasty league"
 readme = "README.md"
 requires-python = ">=3.12"
 

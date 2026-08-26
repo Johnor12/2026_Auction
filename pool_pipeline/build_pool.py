@@ -3,7 +3,7 @@
 
 Stage 2 of the build. ``parse_projections.py`` produces the full provider export —
 900 players x 8 scoring schemes x 4 horizons, ~2.9 MB, most of it irrelevant to a
-10-team superflex dynasty draft. This narrows it to what a draft board actually
+12-team superflex dynasty draft. This narrows it to what a draft board actually
 consumes and drops everything else:
 
     900 players  ->  QB/RB/WR/TE only        (K and IDP have no roster slot)
@@ -13,22 +13,12 @@ consumes and drops everything else:
                                 league's scoring
     8 ADP columns           ->  one column: superflex ADP, as an overall pick number
 
-**Scoring.** The league is 0.5/rec with a 0.5/rec tight end premium (so 1.0/rec for
-TEs) in superflex. Draftsharks publishes eight schemes and none of them is that one,
-but for *points* no arithmetic is needed, because each position's target reception
-rate is already priced exactly by one published column:
-
-    TE       -> ppr        (1.0/rec)
-    QB/RB/WR -> half_ppr   (0.5/rec)
-
-Cells are copied from those columns, not computed. The algebraic route,
-``half_ppr + (te_premium - ppr)``, is an identity on raw points — with B =
-non-reception points and R = receptions, (B + 0.5R) + (B + 1.5R) - (B + R) = B + R,
-i.e. exactly 1.0/rec for a TE, collapsing to half_ppr for everyone else because
-te_premium == ppr there — but the published columns are pre-rounded integers, so
-evaluating it drifts +-1 on 45 of 454 offensive 3-year cells for no gain. The 1QB
-family is used because point totals cannot depend on roster settings and that family
-is the internally consistent one; ``--report`` re-checks both identities.
+**Scoring.** The league is 0.5/rec for every position with no tight end premium, in
+superflex. Draftsharks publishes that scheme directly, so every position copies its
+``half_ppr`` column; nothing is computed. The 1QB family is used because point totals
+cannot depend on roster settings and that family is the internally consistent one.
+The league's -2 per interception is not a published column, so QB points carry the
+provider's own interception assumption; ``--report`` checks the copy is exact.
 
 Points are the only value columns kept — the 3-year total the ranker sorts on, and the
 1-year total whose gap against it is the provider's implied growth (the ranker prices
@@ -50,10 +40,9 @@ undrafted", not a real slot.
 **Ranking.** The pool is ordered by 3-year points descending, ties broken by the
 provider's dynasty rank. So the emitted ``rank`` is verifiable from the emitted
 ``points_3yr`` column and the file references no quantity it does not contain. Every
-eligible player is kept: an earlier top-350 cut dropped players the market drafts
-inside this league's 290 picks — the retirement-discounted Aaron Rodgers (3yr 166 but
-1yr 258, eligible rank 355) and near-miss RBs like Najee Harris and DJ Giddens — to
-save ~90 rows nobody needed saved.
+eligible player is kept: an earlier top-350 cut dropped players the market drafts —
+the retirement-discounted Aaron Rodgers (3yr 166 but 1yr 258, eligible rank 355) and
+near-miss RBs like Najee Harris and DJ Giddens — to save ~90 rows nobody needed saved.
 
 **Cleanups applied.** Players with a 0 or missing 3-year projection are dropped rather
 than ranked last (the source uses 0 where a null belongs) — except the ones in
@@ -87,7 +76,7 @@ import paths
 # Configuration
 # ---------------------------------------------------------------------------
 
-SCHEME = "half_ppr_te_premium_superflex"
+SCHEME = "half_ppr_superflex"
 HORIZON = "3yr"
 POINTS_FIELD = f"points_{HORIZON}"
 
@@ -98,9 +87,8 @@ POSITIONS = ("QB", "RB", "WR", "TE")
 #: usable projection, and the old 350 cut dropped market-drafted players (see docstring).
 RANK_LIMIT = 1000
 
-#: The published 1QB column that already prices each position's reception rate.
-POINTS_COLUMNS = {"TE": "ppr"}
-POINTS_COLUMN_DEFAULT = "half_ppr"
+#: The published 1QB column that prices this league's reception rate for every position.
+POINTS_COLUMN = "half_ppr"
 
 #: ADP is roster-format dependent only. These four are identical in this export;
 #: ADP_COLUMN is the one read, the rest are cross-checked by --report.
@@ -172,12 +160,11 @@ FIELD_DEFINITIONS = {
     "team": "NFL team abbreviation; 'UNS'/'RK' mean unsigned.",
     "age": "Age in years.",
     "bye_week": "Team bye week; null for unsigned players.",
-    "is_rookie": "True for 2026 rookies (taxi-squad eligible).",
+    "is_rookie": "True for 2026 rookies.",
     POINTS_FIELD: (
-        "Three-year projected fantasy points under this league's scoring: 0.5/rec "
-        "with a 0.5/rec TE premium. Copied from the provider column that prices "
-        "that rate exactly (TE: ppr, others: half_ppr). Never below points_1yr: a "
-        "retirement-discounted 3yr cell is raised to the 1yr value (see 'adjustments')."
+        "Three-year projected fantasy points under this league's scoring: 0.5/rec, no "
+        "TE premium. Copied from the provider's half_ppr column. Never below points_1yr: "
+        "a retirement-discounted 3yr cell is raised to the 1yr value (see 'adjustments')."
     ),
     "points_1yr": (
         "One-year projected points, same scoring and same source columns. The gap "
@@ -199,13 +186,9 @@ FIELD_DEFINITIONS = {
 # ---------------------------------------------------------------------------
 
 
-def points_column(position: str) -> str:
-    return POINTS_COLUMNS.get(position, POINTS_COLUMN_DEFAULT)
-
-
 def points_of(record: dict, horizon: str = HORIZON) -> int | None:
     """This league's point total at a horizon: a copy of the column that prices the rate."""
-    return record["projections"][horizon].get(points_column(record["position"]))
+    return record["projections"][horizon].get(POINTS_COLUMN)
 
 
 def decode_adp(value: float, teams: int = TEAMS_PER_ROUND) -> int:
@@ -234,7 +217,7 @@ def apply_synthetic(records: list[dict]) -> list[str]:
         if record is None:
             notes.append(f"{synth['name']} ({player_id}): not in source, skipped")
             continue
-        column = points_column(record["position"])
+        column = POINTS_COLUMN
         if record["projections"]["3yr"].get(column):
             notes.append(f"{synth['name']}: source now has a real projection, skipped")
             continue
@@ -273,7 +256,7 @@ def zero_negative_futures(records: list[dict]) -> list[str]:
     for record in records:
         if record.get("position") not in POSITIONS:
             continue  # K/IDP are full of these; they never reach the pool
-        column = points_column(record["position"])
+        column = POINTS_COLUMN
         horizons = record["projections"]
         p3, p1 = horizons["3yr"].get(column), horizons["1yr"].get(column)
         if p3 and p1 and p1 > p3:
@@ -375,11 +358,11 @@ def build_document(
         "scoring_scheme": {
             "name": SCHEME,
             "description": (
-                "0.5 points per reception for every position plus a 0.5/rec tight end "
-                "premium (so 1.0/rec for TEs), superflex roster format."
+                "0.5 points per reception for every position, no tight end premium, "
+                "superflex roster format."
             ),
-            "reception_points": {"non_te": 0.5, "te": 1.0},
-            "points_copied_from": {"TE": POINTS_COLUMNS["TE"], "default": POINTS_COLUMN_DEFAULT},
+            "reception_points": 0.5,
+            "points_copied_from": POINTS_COLUMN,
             "adp_copied_from": ADP_COLUMN,
         },
         "horizon": HORIZON,
@@ -400,7 +383,7 @@ def check_sources(document: dict) -> None:
     """Fail loudly if a column this reads is gone. Only the ones read are required —
     the rest of ADP_FAMILY is a cross-check, and --report just compares fewer columns."""
     published = set(document.get("scoring_schemes") or [])
-    required = {POINTS_COLUMN_DEFAULT, *POINTS_COLUMNS.values(), ADP_COLUMN}
+    required = {POINTS_COLUMN, ADP_COLUMN}
     missing = sorted(required - published)
     if missing:
         raise ValueError(
@@ -447,49 +430,14 @@ def report(source: dict, kept: list[dict], rows: list[dict], stats: dict) -> Non
     )
 
     # -- points: is the copied column really this league's scoring? --------
-    print(
-        f"\n{POINTS_FIELD}  [TE -> {POINTS_COLUMNS['TE']} (1.0/rec), others -> "
-        f"{POINTS_COLUMN_DEFAULT} (0.5/rec)]",
-        file=out,
-    )
-    tes = [r for r in kept if r["position"] == "TE"]
-    others = [r for r in kept if r["position"] != "TE"]
+    print(f"\n{POINTS_FIELD}  [every position -> {POINTS_COLUMN} (0.5/rec)]", file=out)
 
     def flat(record: dict) -> dict:
         """The record's source cells for this horizon, all schemes."""
         return record["projections"][HORIZON]
 
-    same = sum(1 for r in others if flat(r)["te_premium"] == flat(r)["ppr"])
-    print(
-        f"  non-TE: te_premium == ppr for {same}/{len(others)} — the premium is a "
-        f"TE-only step, so {POINTS_COLUMN_DEFAULT} is exact at 0.5/rec",
-        file=out,
-    )
-    step = sum(
-        1
-        for r in tes
-        if flat(r)["ppr"] - flat(r)["half_ppr"] == flat(r)["te_premium"] - flat(r)["ppr"]
-    )
-    print(
-        f"  TE: (ppr - half_ppr) == (te_premium - ppr) for {step}/{len(tes)}, rest "
-        "+-1 (source columns are pre-rounded integers)",
-        file=out,
-    )
-    drift = sum(
-        1
-        for r in kept
-        for c in [flat(r)]
-        if c["half_ppr"] + c["te_premium"] - c["ppr"] != points_of(r)
-    )
-    print(
-        f"  cells where the three-term transfer would differ: {drift}/{len(kept)} "
-        "(rounding drift, avoided by copying)",
-        file=out,
-    )
     copied = sum(
-        1
-        for row, r in zip(rows, kept)
-        if row[POINTS_FIELD] == flat(r)[points_column(r["position"])]
+        1 for row, r in zip(rows, kept) if row[POINTS_FIELD] == flat(r)[POINTS_COLUMN]
     )
     print(f"  emitted == source column: {copied}/{len(rows)} — exact", file=out)
     one_ok = sum(

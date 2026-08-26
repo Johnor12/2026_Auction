@@ -450,7 +450,7 @@ function rosterCards(roster, outlook) {
 }
 
 /* Pinned Actions status: watch refresh/deploy runs and report the active one's progress. */
-const REPO = "Johnor12/2026_dynasty_draft";
+const REPO = "Johnor12/2026_Auction";
 const WORKFLOW_LABELS = { "refresh.yml": "Refresh", "deploy-pages.yml": "Deploy" };
 const actionsPin = document.getElementById("actionsPin");
 let actionsTimer = null;
@@ -827,7 +827,7 @@ function renderLeagueOutlook(d) {
     month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
   });
   document.getElementById("subline").textContent =
-    `${d.draft.league_name} · ${d.league.teams}-team · Superflex · 0.5 PPR · +0.5 TE premium · board ${asOf}`;
+    `${d.draft.league_name} · ${d.league.teams}-team · Superflex · 0.5 PPR · board ${asOf}`;
 
   const byId = new Map(d.rankings.map(row => [row.player_id, row]));
   const state = { position: "ALL", rookies: false, all: false };

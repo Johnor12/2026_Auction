@@ -63,7 +63,7 @@ Personal and opponent strategies are intentionally separate. My slot alone uses
 projections and expected-lineup roster value. Each opponent uses the provider board
 closest to its completed picks, with a soft boost for unfilled dedicated starters and a
 compounding source-rank penalty for adding players beyond comfortable positional depth.
-The depth targets sum to 25, so the last four spots remain source-driven rather than
+The depth targets sum to 12, so the last two spots remain source-driven rather than
 forcing every opponent into one exact roster shape. These are preferences, not draft
 limits: a large enough source-rank gap can still justify another player at a deep position.
 Observed `mean_log2_loss` calibrates randomness around that preference, after shrinking

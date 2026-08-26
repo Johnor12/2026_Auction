@@ -42,7 +42,7 @@ def validate(
 
     # The static snake is the yardstick even on a live board: check it against the README
     # first, then check that what the board says is still coming agrees with it.
-    readme = ["1.02", "2.09", "3.09", "4.02", "5.09", "6.02", "28.02", "29.09"]
+    readme = ["1.02", "2.11", "3.02", "4.11", "5.02", "6.11", "13.02", "14.11"]
     full = picks_for_slot(board.my_slot, draft_order())
     labels = [pick_label(p) for p in full]
     check(labels[:6] == readme[:6], f"draft order head {labels[:6]} != README {readme[:6]}")
@@ -98,7 +98,7 @@ def validate(
         )
         want = len(made) + board.picks_left[i - 1]
         check(len(roster) == want, f"slot {i} ends with {len(roster)} players, want {want}")
-        # The real constraint is the 25 non-taxi spots; which specific picks land on taxi is
+        # The real constraint is NON_TAXI_SLOTS; which specific picks land on taxi is
         # not fixed, and a mandatory pick may have to be a non-rookie when no rookie at a
         # required position is left. Made picks are facts and may already exceed the cap
         # (owners drop players after the draft), so only the simulation's own additions
@@ -114,12 +114,13 @@ def validate(
             f"slot {i} was dealt {added_non_rookies} non-rookies with only {room} "
             f"non-taxi spots left",
         )
-        # Whether 10 slots can be filled depends only on the roster's positions, not on
+        # Whether the lineup can be filled depends only on the roster's positions, not on
         # which horizon orders the pecking, so one horizon suffices here.
         starters = starting_positions(roster, "yr1")
         check(
             len(starters) == sum(STARTING_SLOTS.values()),
-            f"slot {i} cannot field a full lineup ({len(starters)}/10)",
+            f"slot {i} cannot field a full lineup "
+            f"({len(starters)}/{sum(STARTING_SLOTS.values())})",
         )
         for pos, need in DEDICATED_SLOTS.items():
             have = sum(1 for p in roster if p.position == pos)
