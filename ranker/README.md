@@ -78,7 +78,10 @@ a globally optimal roster chosen with knowledge of all future prices.
 
 The simulation summary reports final spend and unused budget, nominal healthy-starter
 points, and the additional expected-lineup value supplied by the bench. Its representative
-completion marks each purchase as `starter` or `bench` for direct roster inspection.
+completion marks each purchase as `starter` or `bench` for direct roster inspection. It
+also includes all 12 complete teams from that same rollout, with position counts, prices,
+individual one-season projections, starter/bench assignments, summed starter projections,
+remaining budgets, and live purchases distinguished from simulated purchases.
 
 ## Bounded live work
 
@@ -100,7 +103,7 @@ complete rollouts takes roughly 40 seconds on one CPU.
 - `rankings`: available-player max bids, current field prices, rollout price ranges,
   acquisition rates, drain gaps, ranks, and the top modeled opposing bidders;
 - `analysis`: pool bound, inflation, wire levels, rollout diagnostics, and the pricing
-  explanation;
+  explanation, including one representative rollout's 12 complete teams;
 - `validation`: every-run contract and budget checks.
 
 Any validation problem makes `rank.py` exit nonzero.

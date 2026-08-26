@@ -540,6 +540,54 @@ def _nominal_starters(roster: list[Player]) -> set[int]:
     return starters
 
 
+def _rollout_teams(state: AuctionState, sim_state: AuctionState) -> list[dict]:
+    """Complete teams from one rollout, including purchases already made live."""
+    live_counts = {team.roster_id: len(team.purchases) for team in state.teams}
+    teams = []
+    for team in sorted(sim_state.teams, key=lambda item: item.roster_id):
+        starter_ids = _nominal_starters(team.players)
+        players = []
+        for index, purchase in enumerate(team.purchases):
+            player = purchase.player
+            players.append(
+                {
+                    "player_id": player.player_id if player else None,
+                    "name": player.name if player else purchase.name,
+                    "position": purchase.position,
+                    "nfl_team": player.team if player else purchase.nfl_team,
+                    "amount": purchase.amount,
+                    "points_1yr": round(player.points_1yr, 1) if player else None,
+                    "role": (
+                        "starter"
+                        if player and player.player_id in starter_ids
+                        else "bench"
+                    ),
+                    "is_simulated": index >= live_counts[team.roster_id],
+                    "off_pool": player is None,
+                }
+            )
+        teams.append(
+            {
+                "roster_id": team.roster_id,
+                "team": team.team_name or team.username or f"Roster {team.roster_id}",
+                "is_mine": team.is_mine,
+                "spent": team.spent,
+                "remaining_budget": team.remaining_budget,
+                "projected_starter_points_1yr": round(
+                    sum(
+                        player.points_1yr
+                        for player in team.players
+                        if player.player_id in starter_ids
+                    ),
+                    1,
+                ),
+                "positions": team.position_counts(),
+                "players": players,
+            }
+        )
+    return teams
+
+
 def _simulate_auctions(
     state: AuctionState,
     candidates: list[Player],
@@ -715,8 +763,10 @@ def _simulate_auctions(
         ]
         outcomes.append(
             {
+                "simulation": simulation + 1,
                 "value": value,
                 "roster": roster,
+                "teams": _rollout_teams(state, sim_state),
                 "remaining_budget": sim_state.mine.remaining_budget,
                 "nominal_starter_points": nominal_starter_points[-1],
                 "depth_lineup_points": depth_lineup_points[-1],
@@ -808,7 +858,13 @@ def _simulate_auctions(
             if representative_outcome
             else None
         ),
+        "representative_simulation": (
+            representative_outcome["simulation"] if representative_outcome else None
+        ),
         "representative_completion": representative,
+        "representative_teams": (
+            representative_outcome["teams"] if representative_outcome else []
+        ),
     }
     return summary, player_results
 
@@ -1163,6 +1219,43 @@ def selftest(players: list[Player], rankings: dict) -> list[str]:
         problems.append("representative completion does not identify nine nominal starters")
     if roles.count("bench") != ROSTER_SLOTS - sum(STARTING_SLOTS.values()):
         problems.append("representative completion does not identify five bench players")
+    representative_teams = simulation["representative_teams"]
+    if len(representative_teams) != TEAMS:
+        problems.append("representative rollout does not contain all twelve teams")
+    for team in representative_teams:
+        if len(team["players"]) != ROSTER_SLOTS:
+            problems.append(
+                f"representative roster {team['roster_id']} does not contain fourteen players"
+            )
+        if sum(player["amount"] for player in team["players"]) != team["spent"]:
+            problems.append(
+                f"representative roster {team['roster_id']} purchase prices do not match spend"
+            )
+        if team["spent"] + team["remaining_budget"] != AUCTION_BUDGET:
+            problems.append(
+                f"representative roster {team['roster_id']} budget does not balance"
+            )
+        projected_points = round(
+            sum(
+                player["points_1yr"] or 0.0
+                for player in team["players"]
+                if player["role"] == "starter"
+            ),
+            1,
+        )
+        if projected_points != team["projected_starter_points_1yr"]:
+            problems.append(
+                f"representative roster {team['roster_id']} starter projections do not add up"
+            )
+        roles = [player["role"] for player in team["players"]]
+        if roles.count("starter") != sum(STARTING_SLOTS.values()):
+            problems.append(
+                f"representative roster {team['roster_id']} does not identify nine starters"
+            )
+        if roles.count("bench") != ROSTER_SLOTS - sum(STARTING_SLOTS.values()):
+            problems.append(
+                f"representative roster {team['roster_id']} does not identify five bench players"
+            )
     if not result["validation"]["ok"]:
         problems.extend(result["validation"]["problems"])
 
@@ -1188,6 +1281,16 @@ def selftest(players: list[Player], rankings: dict) -> list[str]:
     if bought.player_id not in purchased.taken:
         problems.append("a made purchase was not removed from the available pool")
     purchased_result = analyze(players, purchased, rankings, None)
+    rollout_mine = next(
+        team
+        for team in purchased_result["analysis"]["simulation"]["representative_teams"]
+        if team["is_mine"]
+    )
+    live_rows = [
+        player for player in rollout_mine["players"] if not player["is_simulated"]
+    ]
+    if len(live_rows) != 1 or live_rows[0]["player_id"] != bought.player_id:
+        problems.append("representative rollout did not distinguish the made purchase")
     empty_rows = {row["player_id"]: row for row in result["rankings"]}
     same_position = next(
         row

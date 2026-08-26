@@ -65,7 +65,8 @@ The published files have distinct owners:
 - `data_source_matches.json`: the provider board closest to each opponent's purchases;
   it is a valid cold-start document with no owners before the first purchase
 - `rankings.json`: bid ceilings, field prices, rollout price ranges and roster rates,
-  pursue/nomination recommendations, team budgets, and validation results
+  pursue/nomination recommendations, team budgets, one representative full-league
+  rollout, and validation results
 
 `sleeper_id` joins players across processes. `roster_id` is the auction team identity;
 `draft_slot` is not used as a future turn because an auction has no snake geometry.
@@ -97,7 +98,10 @@ projection-valued dollars; it is a practical sequential policy, not a clairvoyan
 optimizer. Each player's 10th–90th percentile closing-price range and the fraction of
 rollouts in which we acquire him drive the **Pursue** list. Rollout diagnostics include
 unused budget, nominal starter points, the expected-lineup value added by useful depth,
-and starter/bench roles on a representative final roster.
+and starter/bench roles on a representative final roster. The dashboard also exposes all
+12 completed teams from that same representative rollout, including every purchase and
+price, individual projected points, starter/bench assignments, and each starting lineup's
+total projection for simulator sanity checks.
 
 Every simulated purchase preserves enough slots to fill the dedicated starter groups.
 The model also refuses additions beyond two players over its plausible completed-roster

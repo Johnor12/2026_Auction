@@ -81,13 +81,24 @@ tbody tr:hover td { background:color-mix(in srgb,var(--ink) 4%,transparent); }
 .league-table tr.mine td { background:var(--accent2); }
 .budget-bar { width:82px; height:6px; border-radius:6px; background:var(--surface2); overflow:hidden; display:inline-block; vertical-align:middle; }
 .budget-bar i { display:block; height:100%; background:var(--good); }
+.rollout-grid { grid-template-columns:repeat(4,minmax(240px,1fr)); margin-top:10px; color:var(--ink); }
+.rollout-card { padding:0; overflow:hidden; }
+.rollout-card.mine { border-color:var(--accent); }
+.rollout-team { padding:11px 12px; background:var(--surface2); }
+.rollout-team-line { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.rollout-team-line strong { font-size:15px; }
+.rollout-list { display:grid; }
+.rollout-group { padding:6px 10px; border-top:1px solid var(--line); background:var(--surface2); color:var(--muted); font-size:10px; font-weight:750; text-transform:uppercase; letter-spacing:.06em; }
+.rollout-player { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; padding:7px 10px; border-top:1px solid var(--line); }
+.rollout-player .chip { margin-left:0; margin-right:5px; }
+.rollout-player > strong { grid-row:1 / span 2; grid-column:2; align-self:center; }
 details { margin-top:12px; color:var(--muted); }
 summary { color:var(--ink); cursor:pointer; font-weight:650; }
 footer { margin-top:28px; color:var(--muted); font-size:12px; }
 #error { display:none; padding:18px; border:1px solid var(--bad); border-radius:10px; color:var(--bad); }
-@media(max-width:1050px) { .nomination-grid { grid-template-columns:repeat(2,1fr); }.metrics { grid-template-columns:repeat(3,1fr); } }
+@media(max-width:1050px) { .nomination-grid,.rollout-grid { grid-template-columns:repeat(2,1fr); }.metrics { grid-template-columns:repeat(3,1fr); } }
 @media(max-width:650px) { .shell { padding:16px 12px 36px; } header { flex-wrap:wrap; }.header-actions { margin-left:0; width:100%; }
-  .nomination-grid,.metrics { grid-template-columns:1fr; }.live-main { width:100%; } }
+  .nomination-grid,.rollout-grid,.metrics { grid-template-columns:1fr; }.live-main { width:100%; } }
 </style>
 </head>
 <body>
@@ -158,6 +169,15 @@ footer { margin-top:28px; color:var(--muted); font-size:12px; }
           <th class="num">Remaining</th><th class="num">Open</th><th class="num">Legal max</th></tr></thead>
           <tbody id="leagueBody"></tbody></table>
       </div>
+    </section>
+
+    <section>
+      <h2>Example full-auction rollout</h2>
+      <div class="hint" id="rolloutHint"></div>
+      <details id="rolloutDetails">
+        <summary id="rolloutSummary">Show all completed teams</summary>
+        <div class="grid rollout-grid" id="rolloutGrid"></div>
+      </details>
     </section>
     <footer id="footer"></footer>
   </div>
@@ -308,6 +328,37 @@ function renderLeague(d) {
   }));
 }
 
+function renderRollout(d) {
+  const simulation = d.analysis.simulation;
+  const teams = simulation.representative_teams || [];
+  const number = simulation.representative_simulation;
+  $("rolloutHint").textContent = teams.length
+    ? `Rollout ${number} of ${simulation.simulations}, selected because our final projected lineup value is closest to the median completed result. Existing purchases are marked live.`
+    : "No completed rollout is available.";
+  $("rolloutDetails").hidden = !teams.length;
+  $("rolloutSummary").textContent = `Show all ${teams.length} completed teams`;
+  const cards = teams.map(team => {
+    const positions = ["QB","RB","WR","TE"].map(pos => `${pos} ${team.positions[pos] || 0}`).join(" · ");
+    const group = role => [
+      h("div", {class:"rollout-group"}, `${role === "starter" ? "Starters" : "Bench"} · ${team.players.filter(player => player.role === role).length}`),
+      ...["QB","RB","WR","TE"].flatMap(pos => team.players
+        .filter(player => player.role === role && player.position === pos)
+        .map(player => h("div", {class:"rollout-player"},
+          h("span", {}, positionChip(player.position), player.name || "Unknown player"),
+          h("span", {class:"pmeta"}, player.off_pool ? "live · outside projection pool"
+            : `${player.nfl_team || "FA"} · ${fmt(player.points_1yr)} pts · ${player.is_simulated ? "simulated" : "live"}`),
+          h("strong", {class:"num"}, money(player.amount)))))];
+    return h("article", {class:`card rollout-card${team.is_mine ? " mine" : ""}`},
+      h("div", {class:"rollout-team"},
+        h("div", {class:"rollout-team-line"},
+          h("strong", {}, team.team, team.is_mine ? " · you" : ""),
+          h("strong", {}, `${money(team.spent)} spent`)),
+        h("div", {class:"pmeta"}, `${positions} · ${fmt(team.projected_starter_points_1yr)} starter pts · ${money(team.remaining_budget)} left`)),
+      h("div", {class:"rollout-list"}, ...group("starter"), ...group("bench")));
+  });
+  $("rolloutGrid").replaceChildren(...cards);
+}
+
 let actionTimer;
 function showAction(text,cls="",href="#") { const pin=$("actionsPin"); pin.hidden=false; pin.textContent=text; pin.className=`action-pin ${cls}`; pin.href=href; }
 async function pollActions() {
@@ -345,7 +396,7 @@ $("refreshBtn").addEventListener("click",async()=>{
   $("subline").textContent=`${d.draft.league_name} · ${d.league.teams}-team superflex · ${money(d.league.budget)} budget · board ${asOf}`;
   const state={position:"ALL",nomination:false,all:false};
   const rerender=()=>{renderFilters(state,rerender);renderBoard(d,state);};
-  renderSnapshot(d); renderNominations(d); renderPurchases(d); renderMine(d); rerender(); renderLeague(d);
+  renderSnapshot(d); renderNominations(d); renderPurchases(d); renderMine(d); rerender(); renderLeague(d); renderRollout(d);
   $("showMore").addEventListener("click",()=>{state.all=!state.all;renderBoard(d,state);});
   $("footer").replaceChildren(`${d.value_input} · provider snapshot ${new Date(d.provider_snapshot).toLocaleDateString()} · `,
     h("a",{href:"data_source_investigator/"},"opponent source evidence"));
