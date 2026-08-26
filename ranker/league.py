@@ -1,11 +1,9 @@
-"""This league's shape (from README.md) and the strategy constants.
+"""This auction league's shape and hardcoded pricing assumptions.
 
 12 teams, 0.5 PPR, no TE premium, superflex. Starters are 1 QB / 2 RB / 3 WR / 1 TE /
 1 W-R-T / 1 W-R-T-Q = 9. Then 5 bench = 14 draftable roster spots = 14 rounds = 168
 picks; the 2 IR spots are not draftable and there is no taxi squad. Sleeper runs this
-draft as an auction, which has no pick order. Until that rework lands the ranker plays a
-plain snake (no reversal) with me in slot 2, a placeholder carried over from the 2025
-snake.
+draft as a $200 auction with $1 minimum purchases and no pick order.
 """
 
 from __future__ import annotations
@@ -16,7 +14,8 @@ POINTS_FIELD = f"points_{HORIZON}"  # the one value column in pool.json
 POSITIONS = ("QB", "RB", "WR", "TE")
 
 TEAMS = 12
-MY_SLOT = 2  # placeholder: an auction has no draft slot; carried over from the 2025 snake
+# Legacy snake modules still import this; active auction code identifies us by roster_id.
+MY_SLOT = 1
 STARTING_SLOTS = {"QB": 1, "RB": 2, "WR": 3, "TE": 1, "FLEX": 1, "SF": 1}
 # Slots no other position can cover, so every roster must end up with at least these.
 DEDICATED_SLOTS = {"QB": 1, "RB": 2, "WR": 3, "TE": 1}
@@ -27,6 +26,17 @@ NON_TAXI_SLOTS = sum(STARTING_SLOTS.values()) + BENCH_SLOTS  # 14
 ROSTER_SLOTS = NON_TAXI_SLOTS + TAXI_SLOTS  # 14
 ROUNDS = ROSTER_SLOTS
 TOTAL_PICKS = TEAMS * ROUNDS  # 168
+AUCTION_BUDGET = 200
+MIN_BID = 1
+
+# At most 168 players will be bought. Six extra players per team leaves a useful waiver
+# horizon while keeping a live refresh comfortably inside the nomination timer.
+ANALYSIS_POOL_MAX = 240
+ANALYSIS_WAIVER_BUFFER = TEAMS * 6
+
+# Plausible completed-auction depths used only to temper a field manager's bid after a
+# position is already full. My max bids never use these targets.
+AUCTION_POSITION_TARGETS = {"QB": 2, "RB": 4, "WR": 6, "TE": 2}
 
 # Most restrictive slot first: a dedicated slot is always the cheapest place to put a
 # player, which is what lets the greedy lineup solver be exact; --selftest checks that

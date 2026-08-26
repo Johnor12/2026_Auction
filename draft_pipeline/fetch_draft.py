@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch Sleeper's live draft and publish the complete made-and-pending board.
+"""Fetch Sleeper's live draft and publish its live board or auction purchases.
 
 This is a network-only, on-demand pipeline. Board geometry and the output contract live
 in `draft_board.py`; reporting and offline checks are isolated so this entry point only
@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import sys
 import urllib.error
@@ -46,7 +47,7 @@ def get_json(url: str, timeout: int = TIMEOUT_SECONDS):
 
 
 def fetch(draft_id: str, api: str = API, timeout: int = TIMEOUT_SECONDS) -> dict:
-    """The draft, its picks, its traded picks, and the league's users.
+    """The draft, picks, trades, league users, and league rosters.
 
     The first three are load-bearing and a failure is fatal — half a board is worse
     than none, and a missing traded_picks would silently misattribute pending picks.
@@ -56,22 +57,53 @@ def fetch(draft_id: str, api: str = API, timeout: int = TIMEOUT_SECONDS) -> dict
     if not isinstance(draft, dict) or not draft.get("draft_id"):
         raise ValueError(f"no draft {draft_id} at {api} — check the id in the draft URL")
 
-    picks = get_json(f"{api}/draft/{draft_id}/picks", timeout) or []
-    traded = get_json(f"{api}/draft/{draft_id}/traded_picks", timeout) or []
+    # League mocks carry the source league only in metadata.
+    league_id = draft.get("league_id") or (draft.get("metadata") or {}).get("league_id")
+    urls = {
+        "picks": f"{api}/draft/{draft_id}/picks",
+        "traded": f"{api}/draft/{draft_id}/traded_picks",
+    }
+    if league_id:
+        urls |= {
+            "rosters": f"{api}/league/{league_id}/rosters",
+            "users": f"{api}/league/{league_id}/users",
+        }
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(urls)) as executor:
+        pending = {
+            name: executor.submit(get_json, url, timeout) for name, url in urls.items()
+        }
+        picks = pending["picks"].result() or []
+        traded = pending["traded"].result() or []
+        rosters = (pending["rosters"].result() or []) if league_id else []
+        users, warning = [], None
+        if league_id:
+            try:
+                users = pending["users"].result() or []
+            except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                warning = f"could not read league users ({exc}) — names will be null"
+
     if not isinstance(picks, list) or not isinstance(traded, list):
         raise ValueError("picks/traded_picks did not come back as lists")
-
-    users, warning = [], None
-    league_id = draft.get("league_id")
+    if not isinstance(rosters, list):
+        raise ValueError("league rosters did not come back as a list")
     if league_id:
         try:
-            users = get_json(f"{api}/league/{league_id}/users", timeout) or []
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
-            warning = f"could not read league users ({exc}) — names will be null"
+            if not isinstance(users, list):
+                raise ValueError("league users did not come back as a list")
+        except ValueError as exc:
+            warning = f"{exc} — names will be null"
+            users = []
     else:
         warning = "draft has no league_id — names will be null"
 
-    return {"draft": draft, "picks": picks, "traded": traded, "users": users, "warning": warning}
+    return {
+        "draft": draft,
+        "picks": picks,
+        "traded": traded,
+        "users": users,
+        "rosters": rosters,
+        "warning": warning,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -100,7 +132,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.selftest:
         return run_selftest()
 
-    print(f"GET {args.api}/draft/{args.draft_id} (+picks, traded_picks, league users)", file=sys.stderr)
+    print(
+        f"GET {args.api}/draft/{args.draft_id} "
+        "(+picks, traded_picks, league rosters/users)",
+        file=sys.stderr,
+    )
     try:
         fetched = fetch(args.draft_id, args.api, args.timeout)
     except (urllib.error.URLError, TimeoutError) as exc:
@@ -113,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"warning: {fetched['warning']}", file=sys.stderr)
 
     try:
-        board = Board(fetched["draft"], fetched["traded"])
+        board = Board(fetched["draft"], fetched["traded"], fetched["rosters"])
         fatal, notable = pick_number_problems(fetched["picks"], board)
         fatal = board.problems() + fatal
     except (TypeError, ValueError) as exc:
@@ -125,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     for note in notable:
         print(f"warning: {note}", file=sys.stderr)
-    if not board.slot_to_user:
+    if board.type != "auction" and not board.slot_to_user:
         print("warning: draft_order is empty — pick owners will be null", file=sys.stderr)
 
     by_user = index_users(fetched["users"])
@@ -159,6 +195,9 @@ def main(argv: list[str] | None = None) -> int:
         f"draft: {document['picks_made']}/{document['pick_count']} picks made, "
         f"status {document['status']}"
         + (
+            "; auction has no pending pick order"
+            if board.type == "auction"
+            else
             f"; on the clock #{clock['pick_no']} ({clock['slot']}) "
             f"{clock['username'] or clock['user_id']}"
             if clock

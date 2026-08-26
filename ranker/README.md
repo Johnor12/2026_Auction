@@ -1,7 +1,7 @@
 # Ranker
 
-`rank.py` consumes `pool.json`, `draft.json`, normalized provider boards, and
-`data_source_matches.json`, then publishes `rankings.json`.
+`rank.py` consumes `pool.json`, the live auction `draft.json`, normalized provider boards,
+and the optional current `data_source_matches.json`, then publishes `rankings.json`.
 
 ```bash
 uv run rank.py
@@ -11,89 +11,72 @@ uv run rank.py --draft other.json
 uv run rank.py --selftest
 ```
 
-A live board is the simulation's starting state, not a post-processing filter. Made picks
-remain on their rosters, only pending picks are played, and output ranking rows contain
-undrafted players only.
+`--no-draft` keeps the auction's roster identities but ignores made purchases.
 
-## Modules
+## Active modules
 
-- `league.py`: league shape and hardcoded strategy constants
-- `pool.py`: pool document to `Player` objects
-- `board.py`: live `draft.json` to the immutable starting state
-- `opponents.py`: inferred provider boards to complete opponent strategies
-- `value.py`: horizon points, expected lineup value, and wire measurement
-- `simulation.py`: one deterministic draft state and pick policies
-- `convergence.py`: wire-level fixed point
-- `planning.py`: Monte Carlo availability, candidate survival, lookahead, and rollouts
-- `rankings.py`: ranking rows and serialized next-pick recommendations
-- `output.py`: top-level `rankings.json` payload
-- `report.py`: human-readable stderr diagnostics
-- `validate.py`: every-run output and league invariants
-- `selftest.py`: solver, opponent-separation, planning, and malformed-board checks
+- `league.py`: league shape and hardcoded auction assumptions
+- `pool.py`: `pool.json` to `Player` objects
+- `value.py`: exact expected-lineup value with position availability and waiver fallbacks
+- `auction.py`: live state, bounded candidate pool, maximum bids, field prices,
+  nominations, output, and auction self-tests
 
-## Value model
+The older snake simulation modules remain in the repository for history but are not on
+the `rank.py` execution path.
 
-The pool is split into year 1 and years 2–3 because a lineup is fielded each season.
-The board is ranked by `lineup_gain`, each player's marginal expected-lineup value on
-my current roster at the converged wire levels.
+## Roster value
 
-The final waiver bodies affect my expected-lineup choices, and those choices affect who
-remains undrafted. This creates a fixed point:
+`lineup_gain` is the player's marginal expected optimal-lineup points on our current
+roster. Higher players can cover missing starters; deeper players contribute according
+to the probability they are called up when players above them are unavailable. One
+projected post-draft waiver player per position is available as a fallback.
 
-```text
-wire levels -> expected lineup value -> simulated draft -> wire levels
-```
+The waiver line is estimated by removing the players the field consensus expects the
+league's remaining open roster spots to consume. Made purchases remain on their real
+rosters and are removed from the available pool.
 
-The map is discrete and can alternate between neighboring league shapes, so convergence
-detects a repeated state and averages levels over that cycle. The expected-lineup solver
-values the weekly re-optimized lineup: the starter composition is re-chosen per
-availability draw, so a flex seat vacated at one position is refilled by the best
-remaining body at any flex position. It is exact and closed-form — dedicated slots via a
-per-position Bernoulli cascade ordered by points when active, the FLEX/superflex seats
-via layer-cake integrals of the pooled cross-position marginal count (at most one QB,
-the superflex) — and `--selftest` checks it against brute-force enumeration of every
-availability subset. One always-available waiver body can fill one job at each position;
-it is not an unlimited scalar. Expectation-of-max keeps value monotone when a projection
-improves or a player is added. Years 2–3 use their own projections and lineup, with no
-second growth bonus.
+## Maximum bid
 
-## Opponents and planning
+The FantasyPros 12-team, $200 auction values supply a dollar curve. Our projection-based
+preseason value rank selects a point on that curve. The live maximum bid then applies:
 
-Personal and opponent strategies are intentionally separate. My slot alone uses
-projections and expected-lineup roster value. Each opponent uses the provider board
-closest to its completed picks, with a soft boost for unfilled dedicated starters and a
-compounding source-rank penalty for adding players beyond comfortable positional depth.
-The depth targets sum to 12, so the last two spots remain source-driven rather than
-forcing every opponent into one exact roster shape. These are preferences, not draft
-limits: a large enough source-rank gap can still justify another player at a deep position.
-Observed `mean_log2_loss` calibrates randomness around that preference, after shrinking
-toward the cold-start prior as if that prior had been observed on two extra picks — one
-or two on-board picks otherwise fit a near-deterministic policy. A flat RB tilt
-(`OPPONENT_POSITION_TILT`) prices the RB dart-throwing that replays show every source
-board under-predicts. Missing provider
-players are appended in DraftSharks ADP order; opponents never fall back to my board.
+1. current roster factor = current marginal lineup gain / empty-roster marginal gain;
+2. league inflation = remaining league dollars / modeled price of remaining purchases;
+3. our budget pace relative to league dollars per open slot;
+4. the legal cap `remaining budget - $1 * (other open slots)`.
 
-My simulated pick policy does not use those targets or any other positional roster-size
-heuristic. Positional depth is priced only by projected expected-lineup value, so a roster
-shape that differs from the opponents' conventional behavior can be a source of value.
+This makes the value personal without inventing a runtime risk setting or running a slow
+portfolio simulation during the draft.
 
-The bulk deterministic policy scores value now plus the expected best option at its next
-pick. The live shortlist starts from the current board before intervening opponents pick,
-then removes candidates below 5% survival to my turn. Candidate branches are evaluated
-conditional on reaching that turn. Four-pick planning applies the same 5% floor to each
-later target's conditional survival before playing finalists to the end of the draft.
-The first `take` is the EV recommendation if available; when the noiseless example has
-already removed it, `deterministic_fallback` identifies the example draft's legal choice.
-Worker processes receive immutable inputs once, and seeded task ids keep results
-deterministic across scheduling. Planning uses at most eight workers so a rerank does not
-saturate every host CPU; this changes elapsed time, not the simulations or their output.
+## Field price and nominations
+
+Each opponent gets a modeled ceiling from its inferred source order. Before it has enough
+purchases to infer a source, the consensus of all normalized boards is used. Remaining
+budget, roster depth, and live inflation adjust the ceiling; a team cannot exceed its own
+legal maximum.
+
+An ascending auction is priced at one dollar above the second-highest modeled opponent
+ceiling, capped by the highest. Nomination recommendations require a positive
+`field_price - max_bid` and sort by that drain gap.
+
+## Bounded live work
+
+The ranker examines at most 240 available players: remaining league purchases plus a
+72-player waiver buffer, capped at 240. The output board shrinks during the auction.
+Everything is deterministic and batched through the lineup solver; there are no Monte
+Carlo redraws or full-draft rollouts.
 
 ## Output contract
 
-`rankings.json.rankings` is ranked by the roster-aware `lineup_gain` decision metric and
-contains projected and simulated pick fields, opponent consensus deltas, and
-availability estimates for each undrafted player.
-`my_next_picks` is the full recommendation and can intentionally disagree with the
-static board order. `example_draft` contains structured final-roster records for dashboard
-lineup comparison. `validation.problems` is empty on success; any problem makes the CLI
-exit nonzero.
+`rankings.json` contains:
+
+- `my_auction`: remaining dollars, slots, legal ceiling, and a projection-only roster
+  completion diagnostic;
+- `nomination_strategy.recommendations`: the top positive drain gaps;
+- `teams`: actual purchases and current budget state for all 12 rosters;
+- `rankings`: available-player max bids, expected field prices, drain gaps, ranks, and
+  the top modeled opposing bidders;
+- `analysis`: pool bound, inflation, wire levels, and the pricing explanation;
+- `validation`: every-run contract and budget checks.
+
+Any validation problem makes `rank.py` exit nonzero.

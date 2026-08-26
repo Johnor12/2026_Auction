@@ -355,8 +355,6 @@ def main(argv: list[str] | None = None) -> int:
         draft = json.loads(args.draft.read_text())
         if len(rankings["sources"]) < 2:
             raise ValueError("need at least two ranking sources")
-        if not any(pick["status"] == "made" for pick in draft["picks"]):
-            raise ValueError("draft has no made picks to investigate")
         result = investigate(rankings, draft)
     except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"cannot investigate sources: {exc}", file=sys.stderr)

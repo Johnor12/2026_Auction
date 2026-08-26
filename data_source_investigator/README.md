@@ -36,9 +36,9 @@ snapshots, `providers.py` owns provider-specific formats, `identity.py` owns can
 player resolution, `build_rankings.py` assembles normalized boards, and `investigate.py`
 scores those boards against the draft.
 
-The investigate stage reads `draft.json`. This league's draft is an auction, which
-`draft_pipeline/fetch_draft.py` does not publish yet, so until that rework lands only the
-fetch and build stages run against the new league (`--only fetch`, `--only build`).
+The investigate stage reads the auction's completed purchases from `draft.json`. Before
+the first purchase it publishes a valid cold-start report with zero inferred owners;
+the auction ranker uses the provider consensus until owner-specific evidence exists.
 
 `data_source_matches.json` is the published report. For each drafter it includes the
 closest and second-closest source, a separation-based confidence label, every provider's

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Pull the live board, re-rank, and re-evaluate source matches between picks.
+"""Pull auction purchases and rebuild bids between nominations.
 
 Three steps, all of which already stand alone; this only fixes the order and stops on
 the first failure:
@@ -8,13 +8,13 @@ the first failure:
     2. data_source_investigator/investigate.py
                                         existing source rankings + draft.json
                                         -> data_source_matches.json
-    3. rank.py                         pool + draft + source matches/rankings
+    3. rank.py                         pool + auction state + source evidence
                                         -> rankings.json
 
 The pool pipeline and the investigator's source fetch/build stages are deliberately not
 steps. They are re-run only when their underlying rankings change; this loop applies the
 existing snapshots to the current draft without hitting any ranking provider. Source
-investigation precedes ranking because each simulated opponent consumes its latest match.
+investigation precedes ranking because each opponent price consumes its latest match.
 
 Each step is a separate ``uv run``, not an import. All run with the repo root as their
 working directory, so their own default paths apply and this works from anywhere

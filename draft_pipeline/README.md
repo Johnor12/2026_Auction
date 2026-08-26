@@ -1,7 +1,7 @@
 # Draft pipeline
 
-`fetch_draft.py` is the network-only entry point that publishes `draft.json` on demand.
-It does not cache responses because a stale live board is worse than another small fetch.
+`fetch_draft.py` reads Sleeper's draft, picks, traded picks, league users, and league
+rosters, then publishes `draft.json`.
 
 ```bash
 uv run draft_pipeline/fetch_draft.py
@@ -10,41 +10,33 @@ uv run draft_pipeline/fetch_draft.py --selftest
 uv run draft_pipeline/fetch_draft.py --me someone
 ```
 
+## Auction contract
+
+Sleeper auctions have no pending pick order. `draft.json.picks` therefore contains made
+purchases only, ordered by `pick_no`; the pipeline does not fabricate 168 future turns.
+Each row carries:
+
+- the winning `roster_id` and owner;
+- `sleeper_id`, name, position, and NFL team;
+- the winning `amount` from `pick.metadata.amount`.
+
+The header contains the $200 budget, all 12 roster identities, purchase counts, and a
+`budgets` summary with spend, dollars remaining, and open spots. The ranker recomputes
+the same budget facts from purchases and validates them.
+
+League rosters are load-bearing for auctions because `draft_order` may be null; they map
+each `roster_id` to its Sleeper owner. User lookup only supplies display and team names.
+
+## Snake compatibility
+
+`draft_board.py` still supports snake and linear fixtures. For those formats it derives
+pending slots from round geometry and traded-pick ownership and compares them with made
+picks. Auction mode takes a separate made-purchases-only path.
+
 ## Internal boundaries
 
 - `fetch_draft.py`: Sleeper requests and CLI orchestration
-- `draft_board.py`: draft geometry, ownership, pick rows, and JSON document construction
+- `draft_board.py`: format handling and the `draft.json` document
 - `report.py`: integrity diagnostics and the optional `pool.json` join report
-- `selftest.py`: offline formats, reversal, trade, autopick, and malformed-board checks
-- `paths.py`: this process's input/output locations
-
-## Inputs and output
-
-The fetch reads four Sleeper endpoints: the draft, made picks, traded picks, and league
-users. Draft, picks, and trades are load-bearing; user lookup may fail with only names
-becoming null.
-
-`draft.json.picks` always contains all 168 picks, indexed by gap-free `pick_no`.
-Made rows carry Sleeper's player fields. Pending rows carry null player fields but already
-identify the current owner, so consumers can answer who picks next and when my next pick
-occurs. `sleeper_id` joins made picks to `pool.json`; Sleeper's name, position, and NFL
-team are informational.
-
-## Derived pending picks
-
-Sleeper reports slot and roster only after a pick is made. Pending picks are derived from
-the draft settings:
-
-- normal snake rounds alternate direction;
-- a reversal round repeats the prior round's direction and flips parity thereafter;
-- traded ownership is applied by round and the pick's original roster.
-
-This league's 2026 draft is an auction (12 teams × 14 rounds = 168 picks, no reversal),
-which has no pick order to derive, so `fetch_draft.py` currently refuses it. Auction
-support is a pending rework; the derivation above and the offline self-test still
-describe the snake case.
-
-Every fetch compares derived slot and roster against every made pick Sleeper reports.
-Disagreements are warnings and are retained in `board_derivation`. The offline self-test
-covers later rounds and trade cases the current live board may not yet exercise.
-
+- `selftest.py`: auction amounts plus legacy snake geometry, trades, and malformed picks
+- `paths.py`: input/output locations

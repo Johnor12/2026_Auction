@@ -1,853 +1,328 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Dynasty draft board</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Auction draft assistant</title>
 <style>
-  :root {
-    color-scheme: light;
-    --page: #f7f7f4;
-    --surface: #ffffff;
-    --surface-2: #f1f3f5;
-    --ink: #111210;
-    --ink-2: #555751;
-    --muted: #858780;
-    --grid: #e3e4df;
-    --border: rgba(17, 18, 16, .12);
-    --accent: #1769cf;
-    --accent-soft: #e7f0fc;
-    --good: #087f5b;
-    --bad: #c2412d;
-    --pos-QB: #2775d7;
-    --pos-RB: #df5b2b;
-    --pos-WR: #16966a;
-    --pos-TE: #c48300;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      color-scheme: dark;
-      --page: #0e0f0d;
-      --surface: #191a18;
-      --surface-2: #242522;
-      --ink: #f7f8f4;
-      --ink-2: #c2c5bd;
-      --muted: #8f9289;
-      --grid: #30322e;
-      --border: rgba(255, 255, 255, .12);
-      --accent: #5799ec;
-      --accent-soft: #172c47;
-      --good: #45c79a;
-      --bad: #ef856f;
-      --pos-QB: #5799ec;
-      --pos-RB: #e57348;
-      --pos-WR: #3eb78d;
-      --pos-TE: #dfa927;
-    }
-  }
-
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--page);
-    color: var(--ink);
-    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
-  }
-  main { max-width: 1280px; margin: 0 auto; padding: 22px 20px 64px; }
-
-  .top { display: flex; gap: 18px; align-items: flex-start; margin-bottom: 14px; }
-  .brand { min-width: 0; }
-  .top h1 { font-size: 22px; line-height: 1.2; font-weight: 700; margin: 0; }
-  .sub { color: var(--ink-2); font-size: 12.5px; margin: 4px 0 0; }
-  #refreshBtn {
-    margin-left: auto; flex: none; border: 1px solid var(--border); background: var(--surface);
-    color: var(--ink-2); border-radius: 8px; padding: 7px 11px; font: inherit;
-    font-size: 12.5px; cursor: pointer;
-  }
-  #refreshBtn:disabled { cursor: default; opacity: .7; }
-  #refreshBtn.stale {
-    border-color: var(--accent); color: var(--accent); font-weight: 650;
-    animation: stale-pulse 1.6s ease-in-out infinite;
-  }
-  @keyframes stale-pulse {
-    50% { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent); }
-  }
-
-  .card, .table-wrap, .draft-strip {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 11px;
-  }
-  .draft-strip {
-    display: flex; align-items: center; gap: 9px 18px; flex-wrap: wrap;
-    padding: 10px 13px; color: var(--ink-2); font-size: 12.5px;
-  }
-  .draft-strip strong { color: var(--ink); font-size: 13.5px; }
-  .draft-strip .primary { display: inline-flex; align-items: center; gap: 7px; }
-  .live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--good); flex: none; }
-  .live-dot.off { background: var(--muted); }
-  .sync { margin-left: auto; color: var(--good); }
-  .sync.stale { color: var(--accent); font-weight: 650; }
-  .actions-pin {
-    flex: none; display: inline-flex; align-items: center; gap: 6px;
-    border: 1px solid var(--border); border-radius: 999px; background: var(--surface-2);
-    padding: 2px 10px; font-size: 12px; color: var(--ink-2); text-decoration: none;
-  }
-  .actions-pin.active { border-color: var(--accent); color: var(--accent); animation: stale-pulse 1.6s ease-in-out infinite; }
-  .actions-pin.ok { border-color: var(--good); color: var(--good); }
-  .actions-pin.fail { border-color: var(--bad); color: var(--bad); }
-
-  section { margin-top: 30px; }
-  section > h2 { font-size: 17px; line-height: 1.25; font-weight: 700; margin: 0 0 4px; }
-  section > .hint { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; max-width: 100ch; }
-
-  /* Next-pick comparisons */
-  .picks-grid { display: grid; gap: 14px; }
-  .pick-card { overflow: hidden; }
-  .pick-head {
-    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
-    padding: 13px 14px; border-bottom: 1px solid var(--grid);
-  }
-  .pick-label { font-weight: 700; font-size: 15px; }
-  .pick-context { color: var(--muted); font-size: 12px; }
-  .recommendation { margin-left: auto; color: var(--ink-2); font-size: 12.5px; }
-  .recommendation strong { color: var(--accent); font-size: 14px; }
-  .pick-table-wrap { overflow-x: auto; }
-  .pick-table { min-width: 980px; }
-  .pick-table.has-rollout { min-width: 1100px; }
-  .pick-table tbody tr.recommended td { background: var(--accent-soft); }
-  .pick-table tbody tr.recommended td:first-child { box-shadow: inset 3px 0 0 var(--accent); }
-  .player-main { font-weight: 650; }
-  .player-meta, .cell-note { margin-top: 2px; color: var(--muted); font-size: 11.5px; }
-  .cell-note { white-space: normal; line-height: 1.25; }
-  .chance-main { font-weight: 650; font-variant-numeric: tabular-nums; }
-  .score-main { font-weight: 700; }
-
-  /* Shared table */
-  .table-wrap { overflow-x: auto; }
-  table { border-collapse: collapse; width: 100%; }
-  thead th {
-    text-align: left; font-size: 11.5px; line-height: 1.25; font-weight: 650; color: var(--muted);
-    padding: 9px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap;
-  }
-  tbody td { padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
-  tbody tr:last-child td { border-bottom: none; }
-  tbody tr:hover td { background: color-mix(in srgb, var(--ink) 3%, transparent); }
-  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-  td.rank { color: var(--muted); }
-  td.dim, .dim { color: var(--muted); }
-  .positive { color: var(--good); }
-  .negative { color: var(--bad); }
-
-  .chip {
-    display: inline-block; font-size: 10.5px; line-height: 1.45; font-weight: 700;
-    padding: 1px 6px; border-radius: 999px; vertical-align: 1px;
-  }
-  .chip.pos { color: var(--ink); }
-  .chip.pos.QB { background: color-mix(in srgb, var(--pos-QB) 18%, var(--surface)); }
-  .chip.pos.RB { background: color-mix(in srgb, var(--pos-RB) 18%, var(--surface)); }
-  .chip.pos.WR { background: color-mix(in srgb, var(--pos-WR) 18%, var(--surface)); }
-  .chip.pos.TE { background: color-mix(in srgb, var(--pos-TE) 18%, var(--surface)); }
-  .chip.rookie { border: 1px solid var(--border); color: var(--ink-2); }
-  .chip.take { color: #fff; background: var(--accent); }
-
-  /* Projected rosters */
-  .outlook-summary {
-    display: grid; grid-template-columns: repeat(4, minmax(130px, 1fr)); gap: 1px;
-    overflow: hidden; margin-bottom: 12px; padding: 0;
-  }
-  .outlook-metric { padding: 12px 14px; border-right: 1px solid var(--grid); }
-  .outlook-metric:last-child { border-right: 0; }
-  .outlook-metric .label { color: var(--muted); font-size: 11.5px; }
-  .outlook-metric .value { margin-top: 2px; font-size: 19px; font-weight: 700; }
-  .outlook-metric .meta { color: var(--muted); font-size: 11.5px; }
-  .roster-meta { color: var(--muted); font-size: 12px; margin: 0 0 10px; }
-  .roster-grid { display: grid; grid-template-columns: repeat(4, minmax(260px, 1fr)); gap: 10px; }
-  .pos-card { padding: 12px; min-width: 0; }
-  .pos-card h3 {
-    display: flex; align-items: baseline; gap: 7px; margin: 0 0 8px;
-    font-size: 12px; color: var(--ink-2);
-  }
-  .pos-card h3 .count { color: var(--muted); font-weight: 500; }
-  .roster-cols, .roster-row {
-    display: grid; grid-template-columns: minmax(0, 1fr) 52px 65px 48px; gap: 6px;
-    align-items: center;
-  }
-  .roster-cols { color: var(--muted); font-size: 10.5px; text-align: right; padding: 0 0 4px; }
-  .roster-cols span:first-child { text-align: left; }
-  .roster-row { padding: 5px 0; border-top: 1px solid var(--grid); font-size: 12px; }
-  .roster-player { min-width: 0; }
-  .roster-player .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .roster-player .meta { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
-  .roster-row .projection { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
-  .roster-row .projection.starts { color: var(--ink); font-weight: 700; }
-  .roster-row .trend { text-align: right; font-variant-numeric: tabular-nums; }
-
-  /* Best available */
-  .filters { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; margin: 0 0 10px; }
-  .filters .fbtn, .show-more button {
-    border: 1px solid var(--border); background: var(--surface); color: var(--ink-2);
-    border-radius: 999px; padding: 5px 12px; font: inherit; font-size: 12px; cursor: pointer;
-  }
-  .filters .fbtn[aria-pressed="true"] { background: var(--ink); color: var(--page); border-color: var(--ink); }
-  .board-table { min-width: 920px; }
-  .board-table .pname { font-weight: 650; }
-  .board-table .team { color: var(--muted); font-size: 11.5px; margin-left: 5px; }
-  .meter-cell { display: inline-flex; align-items: center; gap: 7px; }
-  .meter { width: 52px; height: 7px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
-  .meter > i { display: block; height: 100%; background: var(--accent); }
-  .meter-cell .pct { width: 32px; text-align: right; font-size: 12px; }
-  .show-more { margin-top: 10px; }
-
-  /* League comparison */
-  .league-table { min-width: 720px; }
-  .league-table tr.mine td { background: var(--accent-soft); }
-  .team-name { font-weight: 650; }
-  .team-slot { color: var(--muted); font-size: 11.5px; margin-left: 5px; }
-  .team-details { display: grid; gap: 8px; margin-top: 12px; }
-  details.team { background: var(--surface); border: 1px solid var(--border); border-radius: 9px; }
-  details.team > summary { cursor: pointer; padding: 10px 12px; font-weight: 650; }
-  details.team > summary .summary-stats { color: var(--muted); font-weight: 450; margin-left: 8px; }
-  details.team .roster-grid { padding: 0 10px 10px; }
-  details.note { margin-top: 9px; color: var(--ink-2); font-size: 12px; }
-  details.note summary { cursor: pointer; color: var(--muted); }
-  details.note p { max-width: 100ch; margin: 7px 0 0; }
-
-  #error { display: none; padding: 16px; margin-top: 20px; }
-  #error code { background: var(--surface-2); padding: 2px 5px; border-radius: 4px; }
-  footer { margin-top: 38px; color: var(--muted); font-size: 11.5px; }
-  footer a { color: inherit; }
-
-  @media (max-width: 1120px) {
-    .roster-grid { grid-template-columns: repeat(2, minmax(260px, 1fr)); }
-  }
-  @media (max-width: 680px) {
-    main { padding: 16px 12px 48px; }
-    .top { align-items: center; }
-    .sub { max-width: 30ch; }
-    .draft-strip { align-items: flex-start; gap: 5px 14px; }
-    .draft-strip .primary { width: 100%; }
-    .sync { width: 100%; margin-left: 0; }
-    section { margin-top: 25px; }
-    .recommendation { width: 100%; margin-left: 0; }
-    .outlook-summary { grid-template-columns: repeat(2, 1fr); }
-    .outlook-metric:nth-child(2) { border-right: 0; }
-    .outlook-metric:nth-child(-n+2) { border-bottom: 1px solid var(--grid); }
-    .roster-grid { grid-template-columns: 1fr; }
-  }
+:root {
+  color-scheme: light dark;
+  --page:#f4f1ea; --surface:#fffdf8; --surface2:#ece7dc; --ink:#20231f;
+  --muted:#6e746c; --line:#d9d3c7; --accent:#9c351f; --accent2:#f6e1d8;
+  --good:#24734a; --bad:#a52a2a; --qb:#d7e8ff; --rb:#dff2df; --wr:#f8e2ea; --te:#f3e5bf;
+}
+@media (prefers-color-scheme:dark) {
+  :root { --page:#161815; --surface:#20231f; --surface2:#2a2e29; --ink:#f3f0e8;
+    --muted:#aab0a7; --line:#3b4039; --accent:#ef8b70; --accent2:#492b23;
+    --good:#70c99a; --bad:#f28b82; --qb:#243d5b; --rb:#25452f; --wr:#512e3c; --te:#504424; }
+}
+* { box-sizing:border-box; }
+body { margin:0; background:var(--page); color:var(--ink); font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif; }
+button { font:inherit; }
+.shell { max-width:1440px; margin:auto; padding:22px 24px 48px; }
+header { display:flex; gap:18px; align-items:flex-start; margin-bottom:16px; }
+h1 { font:800 29px/1.1 Georgia,serif; margin:0 0 5px; letter-spacing:-.3px; }
+h2 { font:750 18px/1.2 Georgia,serif; margin:28px 0 5px; }
+.subline,.hint,.note { color:var(--muted); }
+.header-actions { margin-left:auto; display:flex; gap:8px; align-items:center; }
+.button,.action-pin { border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink);
+  padding:7px 10px; text-decoration:none; cursor:pointer; white-space:nowrap; }
+.button:hover,.action-pin:hover { border-color:var(--accent); }
+.button.stale,.action-pin.active { border-color:var(--accent); color:var(--accent); }
+.action-pin.ok { border-color:var(--good); color:var(--good); }
+.action-pin.fail { border-color:var(--bad); color:var(--bad); }
+.live-strip { display:flex; flex-wrap:wrap; align-items:center; gap:7px 18px; padding:10px 13px;
+  border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+.live-main { display:flex; align-items:center; gap:8px; font-weight:700; }
+.dot { width:8px; height:8px; border-radius:50%; background:var(--good); }
+.dot.off { background:var(--muted); }
+.live-piece { color:var(--muted); font-size:12.5px; }
+.live-piece.stale { color:var(--accent); font-weight:700; }
+.grid { display:grid; gap:12px; }
+.nomination-grid { grid-template-columns:repeat(4,minmax(220px,1fr)); }
+.card { border:1px solid var(--line); border-radius:10px; background:var(--surface); padding:13px; }
+.nominate-card:first-child { border-color:var(--accent); box-shadow:inset 0 3px var(--accent); }
+.eyebrow { color:var(--muted); font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+.player-name { font-weight:750; font-size:16px; margin:4px 0 9px; }
+.price-row { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; }
+.price { padding:7px; border-radius:7px; background:var(--surface2); }
+.price strong { display:block; font-size:19px; line-height:1.1; }
+.price span { color:var(--muted); font-size:10px; text-transform:uppercase; }
+.price.drain strong { color:var(--accent); }
+.bidder { margin-top:8px; color:var(--muted); font-size:11.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.metrics { grid-template-columns:repeat(5,minmax(150px,1fr)); margin-top:12px; }
+.metric { border:1px solid var(--line); border-radius:9px; background:var(--surface); padding:11px 12px; }
+.metric strong { display:block; font-size:23px; line-height:1.15; }
+.metric span { color:var(--muted); font-size:11.5px; }
+.roster { display:flex; flex-wrap:wrap; gap:7px; margin-top:10px; }
+.purchase { border:1px solid var(--line); border-radius:999px; background:var(--surface); padding:5px 9px; }
+.purchase strong { color:var(--accent); }
+.filters { display:flex; flex-wrap:wrap; gap:6px; margin:12px 0 9px; }
+.filter { border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--ink); padding:5px 10px; cursor:pointer; }
+.filter[aria-pressed="true"] { background:var(--ink); border-color:var(--ink); color:var(--page); }
+.table-wrap { overflow:auto; border:1px solid var(--line); border-radius:10px; background:var(--surface); }
+table { width:100%; border-collapse:collapse; min-width:940px; }
+th { position:sticky; top:0; z-index:1; background:var(--surface2); color:var(--muted); text-align:left;
+  font-size:10.5px; text-transform:uppercase; letter-spacing:.04em; }
+th,td { padding:8px 9px; border-bottom:1px solid var(--line); }
+tbody tr:last-child td { border-bottom:0; }
+tbody tr:hover td { background:color-mix(in srgb,var(--ink) 4%,transparent); }
+.num { text-align:right; font-variant-numeric:tabular-nums; }
+.rank { color:var(--muted); width:42px; }
+.pmeta { color:var(--muted); font-size:11px; margin-top:1px; }
+.chip { display:inline-block; border-radius:999px; padding:2px 6px; margin-left:5px; font-size:10px; font-weight:750; }
+.QB { background:var(--qb); }.RB { background:var(--rb); }.WR { background:var(--wr); }.TE { background:var(--te); }
+.max-bid { font-size:17px; font-weight:800; }
+.positive { color:var(--accent); font-weight:750; }
+.negative { color:var(--good); }
+.show-more { display:block; margin:10px auto 0; }
+.league-table { min-width:760px; }
+.league-table tr.mine td { background:var(--accent2); }
+.budget-bar { width:82px; height:6px; border-radius:6px; background:var(--surface2); overflow:hidden; display:inline-block; vertical-align:middle; }
+.budget-bar i { display:block; height:100%; background:var(--good); }
+details { margin-top:12px; color:var(--muted); }
+summary { color:var(--ink); cursor:pointer; font-weight:650; }
+footer { margin-top:28px; color:var(--muted); font-size:12px; }
+#error { display:none; padding:18px; border:1px solid var(--bad); border-radius:10px; color:var(--bad); }
+@media(max-width:1050px) { .nomination-grid { grid-template-columns:repeat(2,1fr); }.metrics { grid-template-columns:repeat(3,1fr); } }
+@media(max-width:650px) { .shell { padding:16px 12px 36px; } header { flex-wrap:wrap; }.header-actions { margin-left:0; width:100%; }
+  .nomination-grid,.metrics { grid-template-columns:1fr; }.live-main { width:100%; } }
 </style>
 </head>
 <body>
-<main>
-  <header class="top">
-    <div class="brand">
-      <h1>Dynasty draft board</h1>
-      <p class="sub" id="subline">Loading rankings.json…</p>
+<main class="shell">
+  <header>
+    <div><h1>Auction draft assistant</h1><div class="subline" id="subline">Loading board…</div></div>
+    <div class="header-actions">
+      <a class="action-pin" id="actionsPin" hidden></a>
+      <button class="button" id="refreshBtn">↻ Refresh board</button>
     </div>
-    <button id="refreshBtn" title="Run the refresh-rankings GitHub Action">↻ Refresh board</button>
   </header>
-
-  <div class="draft-strip" id="draftStrip" aria-live="polite">
-    <span class="primary"><span class="live-dot off" id="liveDot"></span><strong id="liveClock">Loading draft…</strong></span>
-    <span id="liveProgress"></span>
-    <span id="liveMine"></span>
-    <span id="liveLast"></span>
-    <span class="sync" id="liveSync"></span>
-    <a class="actions-pin" id="actionsPin" rel="noopener" hidden></a>
+  <div class="live-strip" id="liveStrip" aria-live="polite">
+    <span class="live-main"><span class="dot off" id="liveDot"></span><span id="liveStatus">Loading draft…</span></span>
+    <span class="live-piece" id="liveProgress"></span>
+    <span class="live-piece" id="liveLast"></span>
+    <span class="live-piece" id="liveSync"></span>
   </div>
-
-  <div class="card" id="error">
-    <strong>Couldn't load <code>rankings.json</code>!</strong>
-    <p>Serve the repository root instead of opening this page directly from disk:</p>
-    <p><code>python3 -m http.server 8123</code> → open <code>/index.html</code> on that port.</p>
-  </div>
-
+  <div id="error">Could not load <code>rankings.json</code>. Run <code>uv run refresh.py</code> and serve this directory over HTTP.</div>
   <div id="app" hidden>
-    <section id="next-picks">
-      <h2>Your next pick</h2>
-      <p class="hint">“Chance to reach” estimates whether opponents leave the player available, from simulations where you keep passing on that player.</p>
-      <div class="picks-grid" id="picksGrid"></div>
-      <details class="note"><summary>How the recommendation works</summary><p id="picksNote"></p></details>
+    <section>
+      <h2>Nominate next</h2>
+      <div class="hint">Targets the field should buy for more than this roster should pay.</div>
+      <div class="grid nomination-grid" id="nominationGrid"></div>
+      <details><summary>How nomination drain is estimated</summary><p id="nominationNote"></p></details>
     </section>
 
-    <section id="roster">
-      <h2 id="rosterTitle">Your projected final team</h2>
-      <p class="hint">One deterministic completion of the current draft—not an average roster. Bold projection values mark players in the optimal starting lineup for that period.</p>
-      <div class="card outlook-summary" id="myOutlook"></div>
-      <p class="roster-meta" id="rosterMeta"></p>
-      <div class="roster-grid" id="rosterGrid"></div>
-      <details class="note"><summary>Projection assumptions</summary><p id="rosterNote"></p></details>
+    <section>
+      <h2 id="myTitle">My auction</h2>
+      <div class="grid metrics" id="myMetrics"></div>
+      <div class="roster" id="myRoster"></div>
     </section>
 
-    <section id="board">
-      <h2>Best available</h2>
-      <p class="hint" id="boardHint"></p>
+    <section>
+      <h2>Maximum-bid board</h2>
+      <div class="hint" id="boardHint"></div>
       <div class="filters" id="filters"></div>
       <div class="table-wrap">
-        <table class="board-table">
-          <thead>
-            <tr>
-              <th class="num">#</th>
-              <th>Player</th>
-              <th>Pos</th>
-              <th class="num">Age</th>
-              <th class="num">Year 1</th>
-              <th class="num">Years 2–3<br>/ year</th>
-              <th class="num">Trend<br>/ year</th>
-              <th class="num">3-year<br>total</th>
-              <th class="num" title="Marginal expected-lineup value if added to your roster now — the metric the pick recommendations maximize">Lineup gain</th>
-              <th class="num" title="Opponent consensus rank minus your board rank">Field Δ</th>
-              <th id="availHead">Chance at next pick</th>
-            </tr>
-          </thead>
+        <table>
+          <thead><tr>
+            <th class="num">#</th><th>Player</th><th>Pos</th><th class="num">Projection</th>
+            <th class="num" title="Marginal expected-lineup points on your roster now">Lineup gain</th>
+            <th class="num" title="Stop bidding after this amount">Maximum bid</th>
+            <th class="num" title="Modeled open-auction closing price from opponent max bids">Field price</th>
+            <th class="num" title="Field price minus your maximum bid; positive is a nomination target">Drain gap</th>
+            <th class="num" title="Consensus provider rank in the full projection pool">Field rank</th>
+          </tr></thead>
           <tbody id="boardBody"></tbody>
         </table>
       </div>
-      <div class="show-more"><button id="showMore"></button></div>
-      <details class="note"><summary>What these numbers mean</summary><p id="boardNote"></p></details>
+      <button class="button show-more" id="showMore"></button>
+      <details><summary>How maximum bids are priced</summary><p id="pricingNote"></p></details>
     </section>
 
-    <section id="leagueOutlook">
-      <h2>Other projected teams</h2>
-      <p class="hint">The same deterministic draft path and period-specific optimal lineups. Expand a team for its full projected roster.</p>
+    <section>
+      <h2>League budgets</h2>
+      <div class="hint">The legal max preserves $1 for every other open roster spot.</div>
       <div class="table-wrap">
-        <table class="league-table">
-          <thead><tr>
-            <th>Team</th>
-            <th>Roster</th>
-            <th class="num">Year 1 starters</th>
-            <th class="num">Years 2–3 / year</th>
-            <th class="num">Lineup trend / year</th>
-            <th class="num">Rookies</th>
-          </tr></thead>
-          <tbody id="leagueBody"></tbody>
-        </table>
+        <table class="league-table"><thead><tr><th>Team</th><th>Roster</th><th class="num">Spent</th>
+          <th class="num">Remaining</th><th class="num">Open</th><th class="num">Legal max</th></tr></thead>
+          <tbody id="leagueBody"></tbody></table>
       </div>
-      <div class="team-details" id="teamDetails"></div>
     </section>
-
     <footer id="footer"></footer>
   </div>
 </main>
-
 <script>
-"use strict";
-
-function h(tag, attrs, ...children) {
+const REPO = "Johnor12/2026_Auction";
+const $ = id => document.getElementById(id);
+const h = (tag, attrs = {}, ...children) => {
   const el = document.createElement(tag);
-  for (const [key, value] of Object.entries(attrs || {})) {
+  for (const [key, value] of Object.entries(attrs)) {
     if (key === "class") el.className = value;
     else if (key.startsWith("on")) el.addEventListener(key.slice(2), value);
     else el.setAttribute(key, value);
   }
-  for (const child of children.flat(Infinity)) {
-    if (child == null) continue;
-    el.append(child.nodeType ? child : document.createTextNode(child));
-  }
+  for (const child of children.flat(Infinity)) if (child != null) el.append(child.nodeType ? child : document.createTextNode(String(child)));
   return el;
-}
-
-const fmt = value => value == null ? "—" : Number(value).toLocaleString("en-US", { maximumFractionDigits: 1 });
-const signed = value => value == null ? "—" : `${value > 0 ? "+" : ""}${fmt(value)}`;
-const pct = value => value == null ? "—" : `${Math.round(value * 100)}%`;
-const futurePerYear = row => row?.future_points_per_year ??
-  (row?.points_3yr == null || row?.points_1yr == null ? null : (row.points_3yr - row.points_1yr) / 2);
-const trendPerYear = row => row?.growth_per_year ??
-  (futurePerYear(row) == null ? null : futurePerYear(row) - row.points_1yr);
-const trendClass = value => value > 0 ? "positive" : value < 0 ? "negative" : "dim";
-
-const labelToOverall = (label, teams) => {
-  const [round, inRound] = label.split(".").map(Number);
-  return (round - 1) * teams + inRound;
 };
-const overallToLabel = (pickNo, teams) => {
-  const round = Math.floor((pickNo - 1) / teams) + 1;
-  return `${round}.${String((pickNo - 1) % teams + 1).padStart(2, "0")}`;
-};
+const money = value => value == null ? "—" : `$${Number(value).toLocaleString("en-US", {maximumFractionDigits:0})}`;
+const fmt = value => value == null ? "—" : Number(value).toLocaleString("en-US", {maximumFractionDigits:1});
+const signedMoney = value => value == null ? "—" : `${value > 0 ? "+" : value < 0 ? "−" : ""}$${Math.abs(value)}`;
+const positionChip = pos => h("span", {class:`chip ${pos}`}, pos);
+const metric = (value, label) => h("div", {class:"metric"}, h("strong", {}, value), h("span", {}, label));
 
-/* The live board may include traded picks; the league's original slot sequence does not. */
-const remainingPickOrder = d => d.draft?.my_remaining_picks || d.league.my_picks;
-
-function pAvailAt(row, pickLabel, myPickOrder) {
-  if (!row || !pickLabel) return null;
-  if (row.p_drafted === 0) return 1;
-  const available = row.p_available_at_my_picks || {};
-  if (pickLabel in available) return available[pickLabel];
-  const index = myPickOrder.indexOf(pickLabel);
-  if (index < 0) return null;
-  const keyIndexes = Object.keys(available).map(key => myPickOrder.indexOf(key)).filter(i => i >= 0);
-  if (keyIndexes.length === 0) {
-    const latest = row.latest_my_pick_likely_available;
-    const latestIndex = latest == null ? -1 : myPickOrder.indexOf(latest);
-    return latestIndex >= 0 && index <= latestIndex ? 1 : 0;
-  }
-  if (index < Math.min(...keyIndexes)) return 1;
-  if (index > Math.max(...keyIndexes)) return 0;
-  return null;
-}
-
-/* This mirrors ranker.value.starting_positions for raw projected starter totals. */
-const STARTING_SLOTS = { QB: 1, RB: 2, WR: 3, TE: 1, FLEX: 2, SF: 1 };
-const SLOT_CHAIN = {
-  QB: ["QB", "SF"], RB: ["RB", "FLEX", "SF"],
-  WR: ["WR", "FLEX", "SF"], TE: ["TE", "FLEX", "SF"],
-};
-
-function projectedLineup(players, field) {
-  const caps = { ...STARTING_SLOTS };
-  const eligible = players.filter(player => player[field] != null)
-    .sort((a, b) => b[field] - a[field] || (a.player_id ?? 0) - (b.player_id ?? 0));
-  const starters = new Set();
-  let points = 0;
-  for (const player of eligible) {
-    for (const slot of SLOT_CHAIN[player.position] || []) {
-      if (!caps[slot]) continue;
-      caps[slot]--;
-      starters.add(player.player_id);
-      points += player[field];
-      break;
-    }
-  }
-  return { starters, points };
-}
-
-function teamOutlook(roster) {
-  const year1 = projectedLineup(roster.picks, "points_1yr");
-  const future = projectedLineup(roster.picks, "future_points_per_year");
-  return { year1, future, trend: future.points - year1.points };
-}
-
-function metric(label, value, meta, className = "") {
-  return h("div", { class: "outlook-metric" },
-    h("div", { class: "label" }, label),
-    h("div", { class: `value ${className}`.trim() }, value),
-    h("div", { class: "meta" }, meta));
-}
-
-function rosterCards(roster, outlook) {
-  return ["QB", "RB", "WR", "TE"].map(position => {
-    const players = roster.picks.filter(player => player.position === position);
-    return h("div", { class: "card pos-card" },
-      h("h3", {}, h("span", { class: `chip pos ${position}` }, position),
-        h("span", { class: "count" }, `${players.length} rostered`)),
-      h("div", { class: "roster-cols" },
-        h("span", {}, "Player"), h("span", {}, "Year 1"),
-        h("span", {}, "Yrs 2–3/yr"), h("span", {}, "Trend")),
-      ...players.map(player => {
-        const y1Starts = outlook.year1.starters.has(player.player_id);
-        const futureStarts = outlook.future.starters.has(player.player_id);
-        const trend = trendPerYear(player);
-        const pick = player.is_made ? "owned" : player.pick;
-        return h("div", { class: "roster-row" },
-          h("div", { class: "roster-player" },
-            h("div", { class: "name", title: player.name }, player.name,
-              player.is_rookie ? [" ", h("span", { class: "chip rookie" }, "R")] : null),
-            h("div", { class: "meta" },
-              [pick, player.nfl_team, player.age == null ? null : `age ${fmt(player.age)}`].filter(Boolean).join(" · "))),
-          h("span", { class: `projection${y1Starts ? " starts" : ""}`, title: y1Starts ? "Projected Year 1 starter" : "Projected Year 1 bench" }, fmt(player.points_1yr)),
-          h("span", { class: `projection${futureStarts ? " starts" : ""}`, title: futureStarts ? "Projected starter in Years 2–3" : "Projected bench in Years 2–3" }, fmt(futurePerYear(player))),
-          h("span", { class: `trend ${trendClass(trend)}`, title: "Years 2–3 annual pace minus Year 1" }, signed(trend)));
-      }));
-  });
-}
-
-/* Pinned Actions status: watch refresh/deploy runs and report the active one's progress. */
-const REPO = "Johnor12/2026_Auction";
-const WORKFLOW_LABELS = { "refresh.yml": "Refresh", "deploy-pages.yml": "Deploy" };
-const actionsPin = document.getElementById("actionsPin");
-let actionsTimer = null;
-let watchedRunId = null;
-let fastUntil = 0;
-
-actionsPin.addEventListener("click", event => {
-  if (actionsPin.dataset.reload) { event.preventDefault(); location.reload(); }
-});
-
-function setPin(text, cls, href, reload) {
-  actionsPin.hidden = false;
-  if (actionsPin.textContent !== text) actionsPin.textContent = text;
-  actionsPin.className = `actions-pin ${cls}`;
-  actionsPin.href = href || "#";
-  if (reload) { actionsPin.dataset.reload = "1"; actionsPin.removeAttribute("target"); }
-  else { delete actionsPin.dataset.reload; actionsPin.target = "_blank"; }
-}
-
-async function pollActions() {
-  clearTimeout(actionsTimer);
-  /* Unauthenticated GitHub allows 60 requests/hour, so only poll fast around activity. */
-  let delay = 90000;
-  try {
-    const token = localStorage.getItem("gh_token");
-    const response = await fetch(`https://api.github.com/repos/${REPO}/actions/runs?per_page=10`, {
-      cache: "no-store",
-      headers: { Accept: "application/vnd.github+json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const runs = (await response.json()).workflow_runs
-      .map(run => ({ ...run, label: WORKFLOW_LABELS[run.path.split("/").pop()] }))
-      .filter(run => run.label);
-    const active = runs.find(run => run.status === "in_progress")
-      || runs.find(run => run.status !== "completed");
-    if (active) {
-      watchedRunId = active.id;
-      fastUntil = Date.now() + 60000;
-      setPin(`${active.label} ${active.status === "in_progress" ? "running" : "queued"}…`,
-        "active", active.html_url);
-    } else if (watchedRunId != null) {
-      const done = runs.find(run => run.id === watchedRunId);
-      watchedRunId = null;
-      if (done && done.conclusion !== "success") {
-        setPin(`✗ ${done.label} ${done.conclusion.replace(/_/g, " ")}`, "fail", done.html_url);
-      } else if (done && done.label === "Deploy") {
-        setPin("✓ Deployed — reload board", "ok", null, true);
-      } else if (done) {
-        /* A successful refresh dispatches the Pages deploy a few seconds later;
-           fastUntil is still open, so the next quick poll picks that run up. */
-        setPin("✓ Refresh finished", "ok", done.html_url);
-      }
-    }
-  } catch {
-    delay = 300000;
-  }
-  if (Date.now() < fastUntil) delay = Math.min(delay, 12000);
-  actionsTimer = setTimeout(pollActions, delay);
-}
-pollActions();
-
-document.getElementById("refreshBtn").addEventListener("click", async event => {
-  const button = event.currentTarget;
-  let token = localStorage.getItem("gh_token");
-  if (!token) {
-    token = prompt(`GitHub token with Actions write access to ${REPO}:`);
-    if (!token) return;
-    token = token.trim();
-    localStorage.setItem("gh_token", token);
-  }
-  button.disabled = true;
-  button.textContent = "↻ Starting…";
-  const reset = (label, delay) => setTimeout(() => {
-    button.disabled = false;
-    button.textContent = label;
-  }, delay);
-  try {
-    const response = await fetch(
-      `https://api.github.com/repos/${REPO}/actions/workflows/refresh.yml/dispatches`,
-      { method: "POST", headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json" },
-        body: JSON.stringify({ ref: "main" }) });
-    if (response.status === 401 || response.status === 403) {
-      localStorage.removeItem("gh_token");
-      throw new Error(`token rejected (${response.status})`);
-    }
-    if (response.status !== 204) throw new Error(`HTTP ${response.status}`);
-    button.textContent = "✓ Refresh queued";
-    fastUntil = Date.now() + 90000;
-    clearTimeout(actionsTimer);
-    actionsTimer = setTimeout(pollActions, 3000);
-    reset("↻ Refresh board", 10000);
-  } catch (error) {
-    button.textContent = `✗ ${error.message}`;
-    reset("↻ Refresh board", 5000);
-  }
-});
-
-function renderDraftSnapshot(d) {
-  const clock = d.draft.on_the_clock;
-  const mine = d.draft.next_pick_of_mine;
-  document.getElementById("liveClock").textContent = clock
-    ? `Sleeper snapshot · on the clock ${clock.slot}${clock.username ? ` · ${clock.username}` : ""}`
-    : "Sleeper snapshot · draft complete";
-  document.getElementById("liveProgress").textContent = `${d.draft.picks_made} of ${d.league.total_picks} picks made`;
-  document.getElementById("liveMine").textContent = mine
-    ? `Your next pick ${mine.slot} · ${mine.picks_away} pick${mine.picks_away === 1 ? "" : "s"} between`
-    : "Your draft is complete";
-  document.getElementById("liveSync").textContent = "Checking live draft…";
+function renderSnapshot(d) {
+  $("liveStatus").textContent = `Sleeper snapshot · ${d.draft.status?.replace("_", " ") || "unknown"}`;
+  $("liveProgress").textContent = `${d.draft.picks_made} of ${d.league.total_picks} purchases`;
+  $("liveLast").textContent = `Your budget ${money(d.my_auction.remaining_budget)} · ${d.my_auction.slots_left} open`;
+  $("liveSync").textContent = "Checking Sleeper…";
 }
 
 async function pollLive(d) {
   const api = `https://api.sleeper.app/v1/draft/${d.draft.draft_id}`;
-  const button = document.getElementById("refreshBtn");
-  const dot = document.getElementById("liveDot");
-  const clock = document.getElementById("liveClock");
-  const progress = document.getElementById("liveProgress");
-  const mine = document.getElementById("liveMine");
-  const lastLabel = document.getElementById("liveLast");
-  const sync = document.getElementById("liveSync");
-  const get = url => fetch(url, { cache: "no-store" }).then(response => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
-  });
-
   try {
-    const [draft, picks] = await Promise.all([get(api), get(`${api}/picks`)]);
-    const made = picks.length;
-    const total = d.league.total_picks;
-    dot.classList.remove("off");
-    clock.textContent = draft.status === "complete" || made >= total
-      ? "Sleeper live · draft complete"
-      : `Sleeper live · on the clock ${overallToLabel(made + 1, d.league.teams)}`;
-    progress.textContent = `${made} of ${total} picks made`;
-
-    const nextMine = remainingPickOrder(d).find(label => labelToOverall(label, d.league.teams) > made);
-    if (nextMine) {
-      const between = labelToOverall(nextMine, d.league.teams) - made - 1;
-      mine.textContent = `Your next pick ${nextMine} · ${between} pick${between === 1 ? "" : "s"} between`;
-    } else {
-      mine.textContent = "Your draft is complete";
-    }
-
-    const last = picks[made - 1];
-    const lastName = last && [last.metadata?.first_name, last.metadata?.last_name].filter(Boolean).join(" ");
-    lastLabel.textContent = lastName ? `Last: ${lastName} (${last.metadata?.position ?? "?"})` : "";
-
-    const behind = made - d.draft.picks_made;
+    const get = url => fetch(url, {cache:"no-store"}).then(response => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    });
+    const [draft,picks] = await Promise.all([get(api),get(`${api}/picks`)]);
+    $("liveDot").classList.remove("off");
+    $("liveStatus").textContent = draft.status === "complete" ? "Sleeper live · auction complete"
+      : draft.status === "drafting" ? "Sleeper live · auction active" : `Sleeper live · ${draft.status.replace("_", " ")}`;
+    $("liveProgress").textContent = `${picks.length} of ${d.league.total_picks} purchases`;
+    const last = picks[picks.length - 1];
+    const name = last && [last.metadata?.first_name,last.metadata?.last_name].filter(Boolean).join(" ");
+    $("liveLast").textContent = name ? `Last: ${name} for ${money(last.metadata?.amount)}` : `Your budget ${money(d.my_auction.remaining_budget)}`;
+    const behind = picks.length - d.draft.picks_made;
     const stale = behind !== 0 || draft.status !== d.draft.status;
-    button.classList.toggle("stale", stale);
-    sync.classList.toggle("stale", stale);
-    if (stale) {
-      sync.textContent = behind > 0
-        ? `Board is ${behind} pick${behind === 1 ? "" : "s"} behind`
-        : "Board and live draft disagree";
-      button.title = `Board built at ${d.draft.fetched_at} is stale — run the refresh workflow`;
-    } else {
-      sync.textContent = "Board in sync";
-      button.title = "Run the refresh-rankings GitHub Action";
-    }
+    $("refreshBtn").classList.toggle("stale", stale);
+    $("liveSync").classList.toggle("stale", stale);
+    $("liveSync").textContent = !stale ? "Board in sync"
+      : behind !== 0 ? `Board is ${Math.abs(behind)} purchase(s) behind`
+      : "Draft status changed; refresh board";
   } catch (error) {
-    dot.classList.add("off");
-    renderDraftSnapshot(d);
-    document.getElementById("liveSync").textContent = `Live check unavailable (${error.message}); showing snapshot`;
-    document.getElementById("liveSync").classList.remove("stale");
-    button.classList.remove("stale");
+    $("liveDot").classList.add("off"); renderSnapshot(d);
+    $("liveSync").textContent = `Live check unavailable (${error.message})`;
   }
 }
 
-function chanceCell(candidate, stats, pick, d) {
-  const pickOrder = remainingPickOrder(d);
-  if (candidate.p_available_if_i_pass) {
-    /* candidate_survival covers every remaining pick, so this is a plain lookup. */
-    const start = pickOrder.indexOf(pick.pick);
-    const labels = pickOrder.slice(Math.max(start, 0), Math.max(start, 0) + 4);
-    const values = labels.map(label => [label, candidate.p_available_if_i_pass[label] ?? null]);
-    const [first, ...later] = values;
-    return h("div", { title: "Counterfactual simulations where your team never drafts this player" },
-      h("div", { class: "chance-main" }, first ? `${pct(first[1])} here` : "—"),
-      h("div", { class: "cell-note" }, later.map(([label, value]) => `${pct(value)} @ ${label}`).join(" · ")));
-  }
-  const available = pAvailAt(stats, pick.pick, pickOrder);
-  return h("div", { title: "Opponent-demand estimate from noisy simulated drafts" },
-    h("div", { class: "chance-main" }, pct(available)),
-    h("div", { class: "cell-note" }, `at ${pick.pick}`));
-}
-
-function renderNextPicks(d, byId) {
-  document.getElementById("picksNote").textContent =
-    "Lineup gain is the player's marginal expected-lineup value, including call-up probability for positional depth and one unique waiver fallback per position. Next-pick option value and two-pick total describe the ordinary fallback policy; they are diagnostics, not the table's ranking. The table is ordered by final-roster EV after searching target plans across four held picks and playing each plan through the entire remaining draft " +
-    `${d.my_next_picks.rollout_sims} times, conditional on each candidate reaching your turn. Candidates and later targets below 5% survival are omitted. Rollout edges compare each plan with the ordinary policy on the same path — every candidate's, including the two-pick leader's, so final-roster EV ranks them directly and remains the objective. A listed path contains only forced targets; the ordinary policy resumes after its last target or whenever an opponent takes a target first. The two-pick leader keeps the recommendation unless a candidate beats his plan by twice the simulation error between them. Raw player points use this league's scoring.`;
-
-  const pick = d.my_next_picks.picks[0];
-  if (!pick) {
-    document.getElementById("picksGrid").replaceChildren();
-    return;
-  }
-  const hasRollout = pick.candidates.some(candidate => candidate.rollout_ev != null);
-  const candidates = hasRollout
-    ? [...pick.candidates].sort((a, b) => b.rollout_ev - a.rollout_ev)
-    : pick.candidates;
-  const context = d.draft.next_pick_of_mine?.slot === pick.pick
-    ? `${pick.overall} overall · ${d.draft.next_pick_of_mine.picks_away} picks between`
-    : `${pick.overall} overall`;
-  const rows = candidates.map(candidate => {
-    const stats = byId.get(candidate.player_id);
-    const isTake = candidate.player_id === pick.take_id;
-    const trend = trendPerYear(stats);
-    const rolloutNote = candidate.rollout_edge == null ? null
-      : `${signed(candidate.rollout_edge)} ± ${fmt(candidate.rollout_se)} vs ordinary policy`;
-    const targets = candidate.four_pick_plan
-      ?.map(target => `${target.pick} ${target.name}`).join(" → ");
-    const planNote = targets ? `Targets: ${targets}; ordinary policy thereafter` : null;
-    return h("tr", { class: isTake ? "recommended" : "" },
-      h("td", {},
-        h("div", { class: "player-main" }, candidate.name, " ",
-          h("span", { class: `chip pos ${candidate.position}` }, candidate.position),
-          stats?.is_rookie ? [" ", h("span", { class: "chip rookie" }, "R")] : null,
-          isTake ? [" ", h("span", { class: "chip take" }, "TAKE")] : null),
-        h("div", { class: "player-meta" }, stats
-          ? [
-              `board #${stats.rank}`,
-              `field #${stats.opponent_consensus_rank}`,
-              `Δ ${signed(stats.opponent_rank_delta)}`,
-              stats.team,
-              stats.age == null ? null : `age ${fmt(stats.age)}`,
-            ].filter(Boolean).join(" · ")
-          : "projection unavailable")),
-      h("td", { class: "num" }, fmt(stats?.points_1yr)),
-      h("td", { class: "num" }, fmt(futurePerYear(stats))),
-      h("td", { class: `num ${trendClass(trend)}` }, signed(trend)),
-      h("td", { class: "num" }, fmt(candidate.value_now)),
-      h("td", { class: "num" }, fmt(candidate.next_pick_ev)),
-      h("td", { class: "num score-main" }, fmt(candidate.score)),
-      h("td", {}, chanceCell(candidate, stats, pick, d)),
-      hasRollout ? h("td", { class: "num" },
-        h("div", {}, fmt(candidate.rollout_ev)),
-        h("div", { class: "cell-note" }, rolloutNote),
-        planNote ? h("div", { class: "cell-note" }, planNote) : null) : null);
+function renderNominations(d) {
+  $("nominationNote").textContent = d.nomination_strategy.note + " Field price is one dollar above the modeled second-highest opponent ceiling, capped by the highest bidder.";
+  const cards = d.nomination_strategy.recommendations.slice(0,8).map((row,index) => {
+    const bidders = row.top_field_bidders.map(bidder => `${bidder.team} ${money(bidder.max_bid)}`).join(" · ");
+    return h("article", {class:"card nominate-card"},
+      h("div", {class:"eyebrow"}, index === 0 ? "Best budget drain" : `Alternative ${index}`),
+      h("div", {class:"player-name"}, row.name, " ", positionChip(row.position)),
+      h("div", {class:"price-row"},
+        h("div", {class:"price"}, h("strong", {}, money(row.max_bid)), h("span", {}, "My max")),
+        h("div", {class:"price"}, h("strong", {}, money(row.field_price)), h("span", {}, "Field")),
+        h("div", {class:"price drain"}, h("strong", {}, signedMoney(row.nomination_edge)), h("span", {}, "Drain"))),
+      h("div", {class:"bidder", title:bidders}, bidders || "No modeled bidder"));
   });
-  document.getElementById("picksGrid").replaceChildren(h("article", { class: "card pick-card" },
-    h("div", { class: "pick-head" },
-      h("span", { class: "pick-label" }, `Pick ${pick.pick}`),
-      h("span", { class: "pick-context" }, context),
-      h("span", { class: "recommendation" },
-        hasRollout ? "Recommendation if available: " : "Recommendation: ",
-        h("strong", {}, pick.take),
-        pick.deterministic_fallback
-          ? ` · deterministic fallback: ${pick.deterministic_fallback}`
-          : null)),
-    h("div", { class: "pick-table-wrap" },
-      h("table", { class: `pick-table${hasRollout ? " has-rollout" : ""}` },
-        h("thead", {}, h("tr", {},
-          h("th", {}, "Player"), h("th", { class: "num" }, "Year 1"),
-          h("th", { class: "num" }, "Years 2–3 / yr"), h("th", { class: "num" }, "Trend / yr"),
-          h("th", { class: "num", title: "Marginal expected-lineup value added to your roster" }, "Lineup gain"),
-          h("th", { class: "num", title: "Expected value of your best option at the following pick" }, "Next-pick option"),
-          h("th", { class: "num", title: "Ordinary-policy diagnostic; this does not rank the table" }, "Two-pick total"),
-          h("th", {}, "Chance to reach"),
-          hasRollout ? h("th", { class: "num", title: "Mean final-roster value; the table is sorted highest first" }, "Final roster EV ↓") : null)),
-        h("tbody", {}, ...rows)))));
+  $("nominationGrid").replaceChildren(...(cards.length ? cards : [h("div", {class:"card note"}, "No positive drain gap at this draft state.")]));
 }
 
-function renderMyRoster(d) {
-  const mine = d.example_draft.rosters.find(roster => roster.is_mine);
-  if (!mine) return;
-  const outlook = teamOutlook(mine);
-  document.getElementById("rosterTitle").textContent = `Your projected final team · ${mine.team}`;
-  document.getElementById("myOutlook").replaceChildren(
-    metric("Year 1 starters", fmt(outlook.year1.points), "10-player optimal lineup"),
-    metric("Years 2–3 / year", fmt(outlook.future.points), "annual pace, optimal lineup"),
-    metric("Lineup trend / year", signed(outlook.trend), "future pace minus Year 1", trendClass(outlook.trend)),
-    metric("Three-year starters", fmt(outlook.year1.points + 2 * outlook.future.points), "Year 1 + two future seasons"));
-  const starts = Object.entries(d.league.starting_slots).map(([slot, count]) => `${count}${slot}`).join(" · ");
-  document.getElementById("rosterMeta").textContent =
-    `${mine.players} players · ${mine.rookies} rookies for ${d.league.taxi_slots} taxi spots · starts ${starts}`;
-  document.getElementById("rosterGrid").replaceChildren(...rosterCards(mine, outlook));
-  document.getElementById("rosterNote").textContent =
-    "Year 1 is the provider's one-season projection. Years 2–3 / year is half of the remaining two-year projection. Trend is that future annual pace minus Year 1; it is an implied trajectory, not a separate forecast. Starting lineups are optimized independently for each period, so a developing or injured player can move from the bench into the later lineup. The totals exclude bench points and do not include weekly variance.";
+function renderMine(d) {
+  const mine = d.teams.find(team => team.is_mine);
+  $("myTitle").textContent = `My auction · ${d.my_auction.team}`;
+  $("myMetrics").replaceChildren(
+    metric(money(d.my_auction.remaining_budget), "remaining budget"),
+    metric(`${d.my_auction.slots_left}`, "open roster spots"),
+    metric(money(d.my_auction.max_legal_bid), "hard legal max"),
+    metric(money(d.my_auction.discretionary_budget), "above $1 reserves"),
+    metric(`${fmt(d.analysis.field_inflation)}×`, "league inflation"));
+  const purchases = (mine?.players || []).map(player => h("span", {class:"purchase"},
+    `${player.name} (${player.position}) `, h("strong", {}, money(player.amount))));
+  $("myRoster").replaceChildren(...(purchases.length ? purchases : [h("span", {class:"note"}, "No players purchased yet.")]));
 }
 
-function renderBoard(d, state) {
-  const nextPick = d.draft.next_pick_of_mine?.slot;
-  const pickOrder = remainingPickOrder(d);
-  document.getElementById("availHead").textContent = nextPick ? `Chance at ${nextPick}` : "Availability";
-  document.getElementById("boardHint").textContent = nextPick
-    ? `Undrafted players ranked by lineup gain. Chance at ${nextPick} is the estimated probability no opponent takes the player first, from ${d.monte_carlo.sims} simulated drafts.`
-    : "Undrafted players ranked by lineup gain.";
-  document.getElementById("boardNote").textContent =
-    "Year 1 and Years 2–3 / year are raw projected fantasy points in this league's scoring. Trend is the later annual pace minus Year 1. Lineup gain — the board's ranking metric — is what the pick recommendations actually maximize (before availability lookahead): the player's marginal expected-lineup value added to your current roster, waiver fallbacks included. It shrinks at positions where your roster is already strong. Field Δ is opponent consensus rank minus board rank, so positive means your process values the player earlier than the modeled field. The recommendation tables also account for who may survive. Best-available odds use a Kaplan–Meier opponent-demand estimate; use the pass-on-him odds in the recommendation table for the candidates that matter most.";
-
+function renderBoard(d,state) {
   let rows = d.rankings;
   if (state.position !== "ALL") rows = rows.filter(row => row.position === state.position);
-  if (state.rookies) rows = rows.filter(row => row.is_rookie);
-  const shown = state.all ? rows : rows.slice(0, 40);
-  document.getElementById("boardBody").replaceChildren(...shown.map(row => {
-    const available = nextPick ? pAvailAt(row, nextPick, pickOrder) : null;
-    const trend = trendPerYear(row);
+  if (state.nomination) rows = rows.filter(row => row.nomination_edge > 0);
+  const shown = state.all ? rows : rows.slice(0,40);
+  $("boardBody").replaceChildren(...shown.map(row => {
+    const bidders = row.top_field_bidders.map(bidder => `${bidder.team}: ${money(bidder.max_bid)}`).join("\n");
+    const gapClass = row.nomination_edge > 0 ? "positive" : row.nomination_edge < 0 ? "negative" : "";
     return h("tr", {},
-      h("td", { class: "num rank" }, row.rank),
-      h("td", {}, h("span", { class: "pname" }, row.name),
-        row.is_rookie ? [" ", h("span", { class: "chip rookie" }, "R")] : null,
-        row.team ? h("span", { class: "team" }, row.team) : null),
-      h("td", {}, h("span", { class: `chip pos ${row.position}` }, `${row.position}${row.positional_rank}`)),
-      h("td", { class: "num" }, fmt(row.age)),
-      h("td", { class: "num" }, fmt(row.points_1yr)),
-      h("td", { class: "num" }, fmt(futurePerYear(row))),
-      h("td", { class: `num ${trendClass(trend)}` }, signed(trend)),
-      h("td", { class: "num" }, fmt(row.points_3yr)),
-      h("td", { class: "num" }, fmt(row.lineup_gain)),
-      h("td", {
-        class: `num ${trendClass(row.opponent_rank_delta)}`,
-        title: `Modeled field rank ${row.opponent_consensus_rank}`,
-      }, signed(row.opponent_rank_delta)),
-      h("td", {}, available == null ? "—" : h("span", { class: "meter-cell" },
-        h("span", { class: "meter" }, h("i", { style: `width:${Math.round(available * 100)}%` })),
-        h("span", { class: "pct" }, pct(available)))));
+      h("td", {class:"num rank"}, row.rank),
+      h("td", {}, h("strong", {}, row.name), row.is_rookie ? h("span", {class:"chip"}, "R") : null,
+        h("div", {class:"pmeta"}, [row.team, row.age == null ? null : `age ${fmt(row.age)}`, `projection value #${row.projection_value_rank}`].filter(Boolean).join(" · "))),
+      h("td", {}, positionChip(row.position), h("span", {class:"pmeta"}, ` ${row.positional_rank}`)),
+      h("td", {class:"num"}, fmt(row.points_1yr)),
+      h("td", {class:"num", title:`Roster factor ${fmt(row.roster_value_factor)}×`}, fmt(row.lineup_gain)),
+      h("td", {class:"num max-bid"}, money(row.max_bid)),
+      h("td", {class:"num", title:bidders}, money(row.field_price)),
+      h("td", {class:`num ${gapClass}`}, signedMoney(row.nomination_edge)),
+      h("td", {class:"num"}, row.field_rank));
   }));
-
-  const button = document.getElementById("showMore");
-  button.textContent = state.all ? "Show top 40" : `Show all ${rows.length}`;
-  button.style.display = rows.length > 40 ? "" : "none";
+  $("boardHint").textContent = `${d.rankings_note} ${d.analysis.players_examined} examined now; ${d.analysis.available_pool_players} projected players remain available in the full source pool.`;
+  $("pricingNote").textContent = d.analysis.pricing_note;
+  $("showMore").textContent = state.all ? "Show top 40" : `Show all ${rows.length}`;
+  $("showMore").style.display = rows.length > 40 ? "" : "none";
 }
 
-function renderFilters(state, rerender) {
-  const positionButton = position => h("button", {
-    class: "fbtn", "aria-pressed": String(state.position === position),
-    onclick: () => { state.position = position; state.all = false; rerender(); },
-  }, position === "ALL" ? "All" : position);
-  const rookieButton = h("button", {
-    class: "fbtn", "aria-pressed": String(state.rookies),
-    onclick: () => { state.rookies = !state.rookies; state.all = false; rerender(); },
-  }, "Rookies only");
-  document.getElementById("filters").replaceChildren(
-    ...["ALL", "QB", "RB", "WR", "TE"].map(positionButton), rookieButton);
+function renderFilters(state,rerender) {
+  const position = pos => h("button", {class:"filter", "aria-pressed":String(state.position === pos),
+    onclick:()=>{state.position=pos;state.all=false;rerender();}}, pos === "ALL" ? "All" : pos);
+  const nominees = h("button", {class:"filter", "aria-pressed":String(state.nomination),
+    onclick:()=>{state.nomination=!state.nomination;state.all=false;rerender();}}, "Drain targets only");
+  $("filters").replaceChildren(...["ALL","QB","RB","WR","TE"].map(position),nominees);
 }
 
-function renderLeagueOutlook(d) {
-  const entries = d.example_draft.rosters.map(roster => ({ roster, outlook: teamOutlook(roster) }));
-  document.getElementById("leagueBody").replaceChildren(...entries.map(({ roster, outlook }) => {
-    const positions = ["QB", "RB", "WR", "TE"].map(position => `${position} ${roster.positions[position] || 0}`).join(" · ");
-    return h("tr", { class: roster.is_mine ? "mine" : "" },
-      h("td", {}, h("span", { class: "team-name" }, roster.team || `Slot ${roster.draft_slot}`),
-        h("span", { class: "team-slot" }, `slot ${roster.draft_slot}${roster.is_mine ? " · you" : ""}`)),
-      h("td", {}, positions),
-      h("td", { class: "num" }, fmt(outlook.year1.points)),
-      h("td", { class: "num" }, fmt(outlook.future.points)),
-      h("td", { class: `num ${trendClass(outlook.trend)}` }, signed(outlook.trend)),
-      h("td", { class: "num" }, `${roster.rookies} / ${d.league.taxi_slots}`));
+function renderLeague(d) {
+  $("leagueBody").replaceChildren(...d.teams.map(team => {
+    const roster = ["QB","RB","WR","TE"].map(pos => `${pos} ${team.positions[pos] || 0}`).join(" · ");
+    return h("tr", {class:team.is_mine ? "mine" : ""},
+      h("td", {}, h("strong", {}, team.team), h("div", {class:"pmeta"}, `roster ${team.roster_id}${team.is_mine ? " · you" : ""}`)),
+      h("td", {}, roster), h("td", {class:"num"}, money(team.spent)),
+      h("td", {class:"num"}, money(team.remaining_budget), " ", h("span", {class:"budget-bar"}, h("i", {style:`width:${Math.max(0,team.remaining_budget/d.league.budget*100)}%`}))),
+      h("td", {class:"num"}, team.slots_left), h("td", {class:"num"}, money(team.max_legal_bid)));
   }));
-
-  document.getElementById("teamDetails").replaceChildren(...entries
-    .filter(({ roster }) => !roster.is_mine)
-    .map(({ roster, outlook }) => h("details", { class: "team" },
-      h("summary", {}, roster.team || `Slot ${roster.draft_slot}`,
-        h("span", { class: "summary-stats" },
-          `Year 1 ${fmt(outlook.year1.points)} · Future ${fmt(outlook.future.points)}/yr · ${signed(outlook.trend)}/yr`)),
-      h("div", { class: "roster-grid" }, ...rosterCards(roster, outlook)))));
 }
 
-(async () => {
-  let d;
+let actionTimer;
+function showAction(text,cls="",href="#") { const pin=$("actionsPin"); pin.hidden=false; pin.textContent=text; pin.className=`action-pin ${cls}`; pin.href=href; }
+async function pollActions() {
+  clearTimeout(actionTimer);
   try {
-    const response = await fetch("rankings.json", { cache: "no-store" });
-    if (!response.ok) throw new Error(response.status);
-    d = await response.json();
-  } catch (error) {
-    document.getElementById("subline").textContent = "";
-    document.getElementById("draftStrip").style.display = "none";
-    document.getElementById("error").style.display = "block";
-    return;
-  }
+    const response=await fetch(`https://api.github.com/repos/${REPO}/actions/runs?per_page=8`,{cache:"no-store"});
+    if(!response.ok) throw new Error(response.status);
+    const run=(await response.json()).workflow_runs.find(item=>item.name==="Refresh rankings");
+    if(!run) return;
+    if(run.status!=="completed") { showAction("Refreshing…","active",run.html_url); actionTimer=setTimeout(pollActions,4000); }
+    else if(run.conclusion==="success") showAction("Refresh complete","ok",run.html_url);
+    else showAction("Refresh failed","fail",run.html_url);
+  } catch { $("actionsPin").hidden=true; }
+}
+$("refreshBtn").addEventListener("click",async()=>{
+  let token=localStorage.getItem("gh_token");
+  if(!token) token=prompt(`GitHub token with Actions write access to ${REPO}:`);
+  if(!token) return;
+  token=token.trim(); localStorage.setItem("gh_token",token); $("refreshBtn").disabled=true;
+  try {
+    const response=await fetch(`https://api.github.com/repos/${REPO}/actions/workflows/refresh.yml/dispatches`,{
+      method:"POST",headers:{Authorization:`Bearer ${token}`,Accept:"application/vnd.github+json"},body:JSON.stringify({ref:"main"})});
+    if(response.status===401||response.status===403) localStorage.removeItem("gh_token");
+    if(response.status!==204) throw new Error(`HTTP ${response.status}`);
+    showAction("Refresh queued","active"); setTimeout(pollActions,2500);
+  } catch(error) { showAction(`Refresh failed: ${error.message}`,"fail"); }
+  finally { setTimeout(()=>{$("refreshBtn").disabled=false;},5000); }
+});
 
-  const asOf = new Date(d.draft.fetched_at).toLocaleString("en-US", {
-    month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
-  });
-  document.getElementById("subline").textContent =
-    `${d.draft.league_name} · ${d.league.teams}-team · Superflex · 0.5 PPR · board ${asOf}`;
-
-  const byId = new Map(d.rankings.map(row => [row.player_id, row]));
-  const state = { position: "ALL", rookies: false, all: false };
-  const rerenderBoard = () => { renderFilters(state, rerenderBoard); renderBoard(d, state); };
-
-  renderDraftSnapshot(d);
-  pollLive(d);
-  setInterval(() => pollLive(d), 30000);
-  renderNextPicks(d, byId);
-  renderMyRoster(d);
-  rerenderBoard();
-  renderLeagueOutlook(d);
-  document.getElementById("showMore").addEventListener("click", () => {
-    state.all = !state.all;
-    renderBoard(d, state);
-  });
-  document.getElementById("footer").replaceChildren(
-    `Projection input: ${d.value_input} · ${d.monte_carlo.sims} availability simulations · ${d.my_next_picks.option_sims} short option redraws · ${d.my_next_picks.rollout_sims} full-draft rollouts per four-pick plan · `,
-    h("a", { href: "data_source_investigator/" }, "data source investigator"));
-  document.getElementById("app").hidden = false;
+(async()=>{
+  let d;
+  try { const response=await fetch("rankings.json",{cache:"no-store"}); if(!response.ok) throw new Error(response.status); d=await response.json(); }
+  catch { $("error").style.display="block"; $("liveStrip").style.display="none"; return; }
+  const asOf=new Date(d.draft.fetched_at).toLocaleString("en-US",{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+  $("subline").textContent=`${d.draft.league_name} · ${d.league.teams}-team superflex · ${money(d.league.budget)} budget · board ${asOf}`;
+  const state={position:"ALL",nomination:false,all:false};
+  const rerender=()=>{renderFilters(state,rerender);renderBoard(d,state);};
+  renderSnapshot(d); renderNominations(d); renderMine(d); rerender(); renderLeague(d);
+  $("showMore").addEventListener("click",()=>{state.all=!state.all;renderBoard(d,state);});
+  $("footer").replaceChildren(`${d.value_input} · provider snapshot ${new Date(d.provider_snapshot).toLocaleDateString()} · `,
+    h("a",{href:"data_source_investigator/"},"opponent source evidence"));
+  $("app").hidden=false; pollLive(d); setInterval(()=>pollLive(d),30000); pollActions();
 })();
 </script>
 </body>

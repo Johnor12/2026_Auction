@@ -1,4 +1,4 @@
-"""Draft geometry, pick ownership, and the draft.json document contract."""
+"""Snake geometry, auction purchases, and the draft.json document contract."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ import collections
 import datetime as dt
 
 
-#: Formats a board can be laid out for. An auction has no pick order to derive.
-SUPPORTED_TYPES = ("snake", "linear")
+#: Formats Sleeper can publish. Auctions contain made purchases only: there is no
+#: pending order to derive.
+SUPPORTED_TYPES = ("snake", "linear", "auction")
 
 #: Slot 2's position-in-round in the 2025 dynasty draft (10 teams, 29 rounds, reversal
 #: at 3), kept as the self-test's known-good snake geometry. The 2026 draft is an
@@ -15,7 +16,10 @@ SUPPORTED_TYPES = ("snake", "linear")
 DOCUMENTED_SLOT_2_PICK_IN_ROUND = {1: 2, 2: 9, 3: 9, 4: 2, 5: 9, 6: 2, 28: 2, 29: 9}
 
 FIELD_DEFINITIONS = {
-    "pick_no": "Overall pick number, 1..pick_count. Unique, gap-free, and the array order.",
+    "pick_no": (
+        "Overall selection number. Unique and gap-free; auction arrays contain the made "
+        "prefix only, while ordered drafts also contain pending rows."
+    ),
     "round": "Round number, 1..rounds.",
     "pick_in_round": (
         "Position within the round, 1..teams. Differs from draft_slot in a reversed "
@@ -41,6 +45,7 @@ FIELD_DEFINITIONS = {
     "position": "Sleeper's position for the selection. Informational, as above.",
     "team": "Sleeper's NFL team for the selection. Informational, as above.",
     "is_keeper": "True when Sleeper flagged the pick as a keeper. False for a normal pick.",
+    "amount": "Winning auction bid in dollars; null for non-auction drafts.",
 }
 
 
@@ -57,7 +62,12 @@ class Board:
     ``/traded_picks`` for the picks that have since changed hands.
     """
 
-    def __init__(self, draft: dict, traded: list[dict] | None = None):
+    def __init__(
+        self,
+        draft: dict,
+        traded: list[dict] | None = None,
+        league_rosters: list[dict] | None = None,
+    ):
         settings = draft.get("settings") or {}
         self.type = draft.get("type") or "snake"
         self.teams = int(settings.get("teams") or 0)
@@ -70,8 +80,17 @@ class Board:
             for slot, roster in (draft.get("slot_to_roster_id") or {}).items()
         }
         # draft_order maps user -> slot; a board is read the other way round.
-        self.slot_to_user = {
+        draft_users = {
             int(slot): user for user, slot in (draft.get("draft_order") or {}).items()
+        }
+        roster_users = {
+            int(roster["roster_id"]): roster.get("owner_id")
+            for roster in (league_rosters or [])
+            if roster.get("roster_id") is not None
+        }
+        self.slot_to_user = {
+            slot: draft_users.get(slot) or roster_users.get(roster)
+            for slot, roster in self.slot_to_roster.items()
         }
         self.roster_to_user = {
             roster: self.slot_to_user.get(slot) for slot, roster in self.slot_to_roster.items()
@@ -123,6 +142,8 @@ class Board:
 
     def locate(self, pick_no: int) -> tuple[int, int, int]:
         """(round, pick_in_round, draft_slot) for an overall pick number."""
+        if self.type == "auction":
+            raise ValueError("an auction has no pending pick geometry")
         round_no = (pick_no - 1) // self.teams + 1
         pick_in_round = (pick_no - 1) % self.teams + 1
         slot = (
@@ -175,11 +196,57 @@ def resolve_me(username: str, board: Board, by_user: dict[str, dict]) -> dict:
 
 
 def pick_rows(board: Board, picks: list[dict], by_user: dict[str, dict], my_user: str | None):
-    """Every pick 1..pick_count, made ones from Sleeper and the rest derived.
+    """Auction purchases, or every ordered-draft pick with pending rows derived.
 
     Returns (rows, checks) where checks records how the derivation compared with what
     Sleeper reported for the picks that have been made.
     """
+    if board.type == "auction":
+        rows = []
+        for pick in sorted(picks, key=lambda row: int(row["pick_no"])):
+            pick_no = int(pick["pick_no"])
+            roster_id = int(pick["roster_id"])
+            # The winning roster owns the purchase; picked_by can be a co-owner or a
+            # commissioner acting for that roster.
+            user_id = board.roster_to_user.get(roster_id) or pick.get("picked_by")
+            meta = pick.get("metadata") or {}
+            amount = meta.get("amount")
+            rows.append(
+                {
+                    "pick_no": pick_no,
+                    "round": int(pick.get("round") or ((pick_no - 1) // board.teams + 1)),
+                    "pick_in_round": (pick_no - 1) % board.teams + 1,
+                    # Sleeper reports draft_slot on purchases, but it is not a future
+                    # auction turn and the winning roster is the ownership fact.
+                    "draft_slot": (
+                        int(pick["draft_slot"])
+                        if pick.get("draft_slot") is not None
+                        else None
+                    ),
+                    "roster_id": roster_id,
+                    "user_id": user_id,
+                    "username": (by_user.get(str(user_id)) or {}).get("username"),
+                    "is_mine": bool(my_user) and str(user_id) == str(my_user),
+                    "status": "made",
+                    "sleeper_id": str(pick["player_id"]) if pick.get("player_id") else None,
+                    "name": " ".join(
+                        part for part in (meta.get("first_name"), meta.get("last_name")) if part
+                    )
+                    or None,
+                    "position": meta.get("position") or None,
+                    "team": meta.get("team") or None,
+                    "is_keeper": bool(pick.get("is_keeper")),
+                    "amount": int(amount) if amount is not None else None,
+                }
+            )
+        checks = {
+            "made_picks_checked": len(rows),
+            "slot_and_roster_agree": len(rows),
+            "mismatches": [],
+            "rounds_exercised": sorted({row["round"] for row in rows}),
+        }
+        return rows, checks
+
     made = {}
     for pick in picks:
         try:
@@ -205,6 +272,7 @@ def pick_rows(board: Board, picks: list[dict], by_user: dict[str, dict], my_user
                 "position": None,
                 "team": None,
                 "is_keeper": None,
+                "amount": None,
             }
         else:
             # Sleeper reported these, so they win; the derived pair is the thing
@@ -236,6 +304,7 @@ def pick_rows(board: Board, picks: list[dict], by_user: dict[str, dict], my_user
                 "position": meta.get("position") or None,
                 "team": meta.get("team") or None,
                 "is_keeper": bool(pick.get("is_keeper")),
+                "amount": None,
             }
 
         rows.append(
@@ -315,9 +384,17 @@ def build_document(
 ) -> dict:
     draft = fetched["draft"]
     by_user = index_users(fetched["users"])
-    on_clock = next((row for row in rows if row["status"] == "pending"), None)
-    mine_next = next(
-        (row for row in rows if row["status"] == "pending" and row["is_mine"]), None
+    on_clock = (
+        None
+        if board.type == "auction"
+        else next((row for row in rows if row["status"] == "pending"), None)
+    )
+    mine_next = (
+        None
+        if board.type == "auction"
+        else next(
+            (row for row in rows if row["status"] == "pending" and row["is_mine"]), None
+        )
     )
     made = [row for row in rows if row["status"] == "made"]
 
@@ -349,6 +426,7 @@ def build_document(
             "type": board.type,
             "teams": board.teams,
             "rounds": board.rounds,
+            "budget": (draft.get("settings") or {}).get("budget"),
             "reversal_round": board.reversal_round or None,
             "scoring_type": (draft.get("metadata") or {}).get("scoring_type"),
         },
@@ -360,7 +438,9 @@ def build_document(
         "my_next_pick": next_mine,
         "board_derivation": {
             "method": (
-                f"{board.type}"
+                "auction; made purchases only (there is no pending pick order)"
+                if board.type == "auction"
+                else f"{board.type}"
                 + (f", order reverses at round {board.reversal_round}" if board.reversal_round else "")
                 + "; traded picks applied"
             ),
@@ -383,6 +463,20 @@ def build_document(
             for slot in range(1, board.teams + 1)
             for user in [board.slot_to_user.get(slot)]
         ],
+        "budgets": [
+            {
+                "roster_id": roster_id,
+                "spent": sum(
+                    row["amount"] or 0 for row in made if row["roster_id"] == roster_id
+                ),
+                "remaining": (draft.get("settings") or {}).get("budget", 0)
+                - sum(row["amount"] or 0 for row in made if row["roster_id"] == roster_id),
+                "slots_filled": sum(row["roster_id"] == roster_id for row in made),
+                "slots_left": board.rounds
+                - sum(row["roster_id"] == roster_id for row in made),
+            }
+            for roster_id in sorted(board.roster_to_user)
+        ] if board.type == "auction" else None,
         "traded_picks": fetched["traded"],
         "fields": FIELD_DEFINITIONS,
         "picks": rows,

@@ -73,16 +73,19 @@ def report(document: dict, rows: list[dict], board: Board, pool_path: Path) -> N
     )
 
     print("\norder", file=out)
-    for round_no in range(1, min(board.rounds, 6) + 1):
-        first = board.locate((round_no - 1) * board.teams + 1)[2]
-        last = board.locate(round_no * board.teams)[2]
-        print(
-            f"  round {round_no:>2}  slots {first} -> {last}  "
-            f"({'reversed' if board.is_reversed(round_no) else 'forward'})",
-            file=out,
-        )
-    if board.rounds > 6:
-        print(f"  ... through round {board.rounds}", file=out)
+    if board.type == "auction":
+        print("  auction: only completed purchases have an owner; no pending order", file=out)
+    else:
+        for round_no in range(1, min(board.rounds, 6) + 1):
+            first = board.locate((round_no - 1) * board.teams + 1)[2]
+            last = board.locate(round_no * board.teams)[2]
+            print(
+                f"  round {round_no:>2}  slots {first} -> {last}  "
+                f"({'reversed' if board.is_reversed(round_no) else 'forward'})",
+                file=out,
+            )
+        if board.rounds > 6:
+            print(f"  ... through round {board.rounds}", file=out)
 
     check = document["board_derivation"]
     print("\nderivation vs what Sleeper reported", file=out)
@@ -99,21 +102,27 @@ def report(document: dict, rows: list[dict], board: Board, pool_path: Path) -> N
         )
 
     me = document["me"]
-    agree, disagree = documented_slot_check(rows, me["draft_slot"])
+    agree, disagree = ([], []) if board.type == "auction" else documented_slot_check(rows, me["draft_slot"])
     print(
         f"\nmy picks — {me['username']}, slot {me['draft_slot']}, roster {me['roster_id']}",
         file=out,
     )
-    print(
-        f"  documented slot geometry matches: {len(agree)}/{len(agree) + len(disagree)}",
-        file=out,
-    )
+    if board.type != "auction":
+        print(
+            f"  documented slot geometry matches: {len(agree)}/{len(agree) + len(disagree)}",
+            file=out,
+        )
     for line in disagree:
         print(f"  ^ MISMATCH {line}", file=out)
     mine = [row for row in rows if row["is_mine"]]
+    mine_labels = (
+        [f"{row['name']} ${row['amount']}" for row in mine[:10]]
+        if board.type == "auction"
+        else [round_pick(row["round"], row["pick_in_round"]) for row in mine[:10]]
+    )
     print(
-        "  all: "
-        + ", ".join(round_pick(row["round"], row["pick_in_round"]) for row in mine[:10])
+        ("  purchases: " if board.type == "auction" else "  all: ")
+        + ", ".join(mine_labels)
         + (f", ... ({len(mine)} total)" if len(mine) > 10 else ""),
         file=out,
     )
@@ -121,9 +130,10 @@ def report(document: dict, rows: list[dict], board: Board, pool_path: Path) -> N
     made = [row for row in rows if row["status"] == "made"]
     print(f"\npicks made ({len(made)})", file=out)
     for row in made[-12:]:
+        label = f"${row['amount']}" if board.type == "auction" else round_pick(row['round'], row['pick_in_round'])
         print(
-            f"  {round_pick(row['round'], row['pick_in_round']):>6} "
-            f"#{row['pick_no']:<4} {(row['username'] or row['user_id'] or '?'):<16} "
+            f"  {label:>6} #{row['pick_no']:<4} "
+            f"{(row['username'] or row['user_id'] or '?'):<16} "
             f"{(row['name'] or '?'):<24} {row['position'] or '?':<3} {row['team'] or '?':<4}"
             f"{'  <- mine' if row['is_mine'] else ''}",
             file=out,
@@ -153,15 +163,17 @@ def report(document: dict, rows: list[dict], board: Board, pool_path: Path) -> N
     print("\nintegrity", file=out)
     numbers = [row["pick_no"] for row in rows]
     print(
-        f"  pick_no is 1..{len(rows)} gap-free: {numbers == list(range(1, len(rows) + 1))}",
+        f"  made pick_no is a 1..{len(rows)} prefix: "
+        f"{numbers == list(range(1, len(rows) + 1))}",
         file=out,
     )
-    per_slot = collections.Counter(row["draft_slot"] for row in rows)
-    print(
-        f"  every slot appears {board.rounds}x: "
-        f"{set(per_slot.values()) == {board.rounds} and len(per_slot) == board.teams}",
-        file=out,
-    )
+    if board.type != "auction":
+        per_slot = collections.Counter(row["draft_slot"] for row in rows)
+        print(
+            f"  every slot appears {board.rounds}x: "
+            f"{set(per_slot.values()) == {board.rounds} and len(per_slot) == board.teams}",
+            file=out,
+        )
     drafted = [row["sleeper_id"] for row in made if row["sleeper_id"]]
     repeats = [i for i, n in collections.Counter(drafted).items() if n > 1]
     print(

@@ -56,8 +56,32 @@ def selftest() -> int:
     check("snake, no reversal", order_of(fake(rounds=4, reversal=0)),
           [[1, 2, 3, 4], [4, 3, 2, 1], [1, 2, 3, 4], [4, 3, 2, 1]])
     check("linear", order_of(fake(rounds=2, type_="linear")), [[1, 2, 3, 4], [1, 2, 3, 4]])
-    check("auction has no board", Board(fake(type_="auction")).problems(),
-          ["draft type 'auction' has no pick order to derive"])
+    check("auction is supported without pending geometry", Board(fake(type_="auction")).problems(), [])
+    auction = Board(fake(type_="auction"))
+    auction_rows, _ = pick_rows(
+        auction,
+        [{
+            "pick_no": 1, "round": 1, "draft_slot": 1, "roster_id": 101,
+            "picked_by": "u1", "player_id": "999", "metadata": {
+                "first_name": "Auction", "last_name": "Player", "position": "QB",
+                "team": "BUF", "amount": "47",
+            },
+        }],
+        {"u1": {"username": "name1", "team_name": None}},
+        "u1",
+    )
+    check(
+        "auction emits made purchases with winning amount",
+        {key: auction_rows[0][key] for key in ("status", "roster_id", "amount", "is_mine")},
+        {"status": "made", "roster_id": 101, "amount": 47, "is_mine": True},
+    )
+    try:
+        auction.locate(1)
+    except ValueError:
+        located_auction = False
+    else:
+        located_auction = True
+    check("auction refuses fabricated pending geometry", located_auction, False)
     check("0 teams is refused", bool(Board(fake(teams=0)).problems()), True)
 
     # The 2025 dynasty draft's geometry, against the sequence its README documented.
