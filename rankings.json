@@ -213,6 +213,9 @@
           "spent": 197,
           "remaining_budget": 3,
           "projected_starter_points_1yr": 1880.4,
+          "expected_lineup_points_1yr": 2181.3,
+          "starter_spend": 171,
+          "bench_spend": 26,
           "positions": {
             "QB": 2,
             "RB": 4,
@@ -383,6 +386,9 @@
           "spent": 199,
           "remaining_budget": 1,
           "projected_starter_points_1yr": 1908.7,
+          "expected_lineup_points_1yr": 2202.0,
+          "starter_spend": 178,
+          "bench_spend": 21,
           "positions": {
             "QB": 3,
             "RB": 5,
@@ -553,6 +559,9 @@
           "spent": 200,
           "remaining_budget": 0,
           "projected_starter_points_1yr": 1708.5,
+          "expected_lineup_points_1yr": 1937.5,
+          "starter_spend": 180,
+          "bench_spend": 20,
           "positions": {
             "QB": 2,
             "RB": 3,
@@ -723,6 +732,9 @@
           "spent": 200,
           "remaining_budget": 0,
           "projected_starter_points_1yr": 1975.6,
+          "expected_lineup_points_1yr": 2220.0,
+          "starter_spend": 193,
+          "bench_spend": 7,
           "positions": {
             "QB": 2,
             "RB": 6,
@@ -893,6 +905,9 @@
           "spent": 199,
           "remaining_budget": 1,
           "projected_starter_points_1yr": 1948.7,
+          "expected_lineup_points_1yr": 2236.3,
+          "starter_spend": 185,
+          "bench_spend": 14,
           "positions": {
             "QB": 3,
             "RB": 5,
@@ -1063,6 +1078,9 @@
           "spent": 200,
           "remaining_budget": 0,
           "projected_starter_points_1yr": 2023.7,
+          "expected_lineup_points_1yr": 2287.0,
+          "starter_spend": 184,
+          "bench_spend": 16,
           "positions": {
             "QB": 2,
             "RB": 5,
@@ -1233,6 +1251,9 @@
           "spent": 200,
           "remaining_budget": 0,
           "projected_starter_points_1yr": 1877.3,
+          "expected_lineup_points_1yr": 2072.9,
+          "starter_spend": 195,
+          "bench_spend": 5,
           "positions": {
             "QB": 3,
             "RB": 4,
@@ -1403,6 +1424,9 @@
           "spent": 200,
           "remaining_budget": 0,
           "projected_starter_points_1yr": 1922.8,
+          "expected_lineup_points_1yr": 2207.2,
+          "starter_spend": 176,
+          "bench_spend": 24,
           "positions": {
             "QB": 4,
             "RB": 4,
@@ -1573,6 +1597,9 @@
           "spent": 199,
           "remaining_budget": 1,
           "projected_starter_points_1yr": 1973.1,
+          "expected_lineup_points_1yr": 2223.1,
+          "starter_spend": 190,
+          "bench_spend": 9,
           "positions": {
             "QB": 2,
             "RB": 4,
@@ -1743,6 +1770,9 @@
           "spent": 159,
           "remaining_budget": 41,
           "projected_starter_points_1yr": 1811.8,
+          "expected_lineup_points_1yr": 2116.5,
+          "starter_spend": 127,
+          "bench_spend": 32,
           "positions": {
             "QB": 4,
             "RB": 5,
@@ -1913,6 +1943,9 @@
           "spent": 200,
           "remaining_budget": 0,
           "projected_starter_points_1yr": 1937.1,
+          "expected_lineup_points_1yr": 2226.7,
+          "starter_spend": 190,
+          "bench_spend": 10,
           "positions": {
             "QB": 3,
             "RB": 5,
@@ -2083,6 +2116,9 @@
           "spent": 200,
           "remaining_budget": 0,
           "projected_starter_points_1yr": 1910.5,
+          "expected_lineup_points_1yr": 2158.8,
+          "starter_spend": 179,
+          "bench_spend": 21,
           "positions": {
             "QB": 2,
             "RB": 5,

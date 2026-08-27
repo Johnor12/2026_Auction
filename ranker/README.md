@@ -81,7 +81,9 @@ points, and the additional expected-lineup value supplied by the bench. Its repr
 completion marks each purchase as `starter` or `bench` for direct roster inspection. It
 also includes all 12 complete teams from that same rollout, with position counts, prices,
 individual one-season projections, starter/bench assignments, summed starter projections,
-remaining budgets, and live purchases distinguished from simulated purchases.
+expected lineup points under the same backup/unavailability assumptions used by the
+ranker, starter/bench spend, remaining budgets, and live purchases distinguished from
+simulated purchases.
 
 ## Bounded live work
 

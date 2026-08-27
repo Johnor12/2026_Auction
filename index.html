@@ -87,6 +87,10 @@ tbody tr:hover td { background:color-mix(in srgb,var(--ink) 4%,transparent); }
 .rollout-team { padding:11px 12px; background:var(--surface2); }
 .rollout-team-line { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
 .rollout-team-line strong { font-size:15px; }
+.rollout-metrics { display:grid; grid-template-columns:repeat(2,1fr); gap:6px; margin-top:9px; }
+.rollout-metric { padding:7px; border:1px solid var(--line); border-radius:7px; background:var(--surface); }
+.rollout-metric strong { display:block; font-size:18px; line-height:1.1; }
+.rollout-metric span { color:var(--muted); font-size:10px; text-transform:uppercase; }
 .rollout-list { display:grid; }
 .rollout-group { padding:6px 10px; border-top:1px solid var(--line); background:var(--surface2); color:var(--muted); font-size:10px; font-weight:750; text-transform:uppercase; letter-spacing:.06em; }
 .rollout-player { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:2px 8px; padding:7px 10px; border-top:1px solid var(--line); }
@@ -201,6 +205,7 @@ const pct = value => value == null ? "—" : `${Math.round(Number(value)*100)}%`
 const signedMoney = value => value == null ? "—" : `${value > 0 ? "+" : value < 0 ? "−" : ""}$${Math.abs(value)}`;
 const positionChip = pos => h("span", {class:`chip ${pos}`}, pos);
 const metric = (value, label) => h("div", {class:"metric"}, h("strong", {}, value), h("span", {}, label));
+const rolloutMetric = (value, label, title) => h("div", {class:"rollout-metric", title}, h("strong", {}, value), h("span", {}, label));
 
 function renderSnapshot(d) {
   $("liveStatus").textContent = `Sleeper snapshot · ${d.draft.status?.replace("_", " ") || "unknown"}`;
@@ -333,7 +338,7 @@ function renderRollout(d) {
   const teams = simulation.representative_teams || [];
   const number = simulation.representative_simulation;
   $("rolloutHint").textContent = teams.length
-    ? `Rollout ${number} of ${simulation.simulations}, selected because our final projected lineup value is closest to the median completed result. Existing purchases are marked live.`
+    ? `Rollout ${number} of ${simulation.simulations}, selected because our final expected lineup value is closest to the median completed result. Projected points sum the healthy starters; expected points apply weekly unavailability and the best replacement from the bench or one waiver fallback.`
     : "No completed rollout is available.";
   $("rolloutDetails").hidden = !teams.length;
   $("rolloutSummary").textContent = `Show all ${teams.length} completed teams`;
@@ -352,8 +357,13 @@ function renderRollout(d) {
       h("div", {class:"rollout-team"},
         h("div", {class:"rollout-team-line"},
           h("strong", {}, team.team, team.is_mine ? " · you" : ""),
-          h("strong", {}, `${money(team.spent)} spent`)),
-        h("div", {class:"pmeta"}, `${positions} · ${fmt(team.projected_starter_points_1yr)} starter pts · ${money(team.remaining_budget)} left`)),
+          h("span", {class:"pmeta"}, `${money(team.remaining_budget)} unspent`)),
+        h("div", {class:"rollout-metrics"},
+          rolloutMetric(fmt(team.projected_starter_points_1yr), "Projected points", "Healthy starting-lineup projection"),
+          rolloutMetric(fmt(team.expected_lineup_points_1yr), "Expected points", "Expected optimal lineup with unavailability, bench replacements, and one waiver fallback per position"),
+          rolloutMetric(money(team.starter_spend), "Starter $", "Auction dollars spent on the healthy starting lineup"),
+          rolloutMetric(money(team.bench_spend), "Bench $", "Auction dollars spent on bench players")),
+        h("div", {class:"pmeta"}, positions)),
       h("div", {class:"rollout-list"}, ...group("starter"), ...group("bench")));
   });
   $("rolloutGrid").replaceChildren(...cards);

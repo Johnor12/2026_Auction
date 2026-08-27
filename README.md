@@ -101,7 +101,9 @@ unused budget, nominal starter points, the expected-lineup value added by useful
 and starter/bench roles on a representative final roster. The dashboard also exposes all
 12 completed teams from that same representative rollout, including every purchase and
 price, individual projected points, starter/bench assignments, and each starting lineup's
-total projection for simulator sanity checks.
+total projection for simulator sanity checks. Each team also reports expected lineup
+points under the backup/unavailability model and its auction spend split between starters
+and bench.
 
 Every simulated purchase preserves enough slots to fill the dedicated starter groups.
 The model also refuses additions beyond two players over its plausible completed-roster

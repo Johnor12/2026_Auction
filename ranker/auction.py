@@ -540,12 +540,15 @@ def _nominal_starters(roster: list[Player]) -> set[int]:
     return starters
 
 
-def _rollout_teams(state: AuctionState, sim_state: AuctionState) -> list[dict]:
+def _rollout_teams(
+    state: AuctionState, sim_state: AuctionState, wire: dict
+) -> list[dict]:
     """Complete teams from one rollout, including purchases already made live."""
     live_counts = {team.roster_id: len(team.purchases) for team in state.teams}
     teams = []
     for team in sorted(sim_state.teams, key=lambda item: item.roster_id):
         starter_ids = _nominal_starters(team.players)
+        expected_points, _ = team_values_with_candidates(team.players, wire, [])
         players = []
         for index, purchase in enumerate(team.purchases):
             player = purchase.player
@@ -580,6 +583,19 @@ def _rollout_teams(state: AuctionState, sim_state: AuctionState) -> list[dict]:
                         if player.player_id in starter_ids
                     ),
                     1,
+                ),
+                "expected_lineup_points_1yr": round(expected_points, 1),
+                "starter_spend": sum(
+                    purchase.amount
+                    for purchase in team.purchases
+                    if purchase.player
+                    and purchase.player.player_id in starter_ids
+                ),
+                "bench_spend": sum(
+                    purchase.amount
+                    for purchase in team.purchases
+                    if not purchase.player
+                    or purchase.player.player_id not in starter_ids
                 ),
                 "positions": team.position_counts(),
                 "players": players,
@@ -766,7 +782,7 @@ def _simulate_auctions(
                 "simulation": simulation + 1,
                 "value": value,
                 "roster": roster,
-                "teams": _rollout_teams(state, sim_state),
+                "teams": _rollout_teams(state, sim_state, wire),
                 "remaining_budget": sim_state.mine.remaining_budget,
                 "nominal_starter_points": nominal_starter_points[-1],
                 "depth_lineup_points": depth_lineup_points[-1],
@@ -1246,6 +1262,27 @@ def selftest(players: list[Player], rankings: dict) -> list[str]:
         if projected_points != team["projected_starter_points_1yr"]:
             problems.append(
                 f"representative roster {team['roster_id']} starter projections do not add up"
+            )
+        starter_spend = sum(
+            player["amount"]
+            for player in team["players"]
+            if player["role"] == "starter"
+        )
+        bench_spend = sum(
+            player["amount"]
+            for player in team["players"]
+            if player["role"] == "bench"
+        )
+        if (starter_spend, bench_spend) != (
+            team["starter_spend"],
+            team["bench_spend"],
+        ):
+            problems.append(
+                f"representative roster {team['roster_id']} role spending does not add up"
+            )
+        if team["expected_lineup_points_1yr"] < projected_points:
+            problems.append(
+                f"representative roster {team['roster_id']} backups reduced expected points"
             )
         roles = [player["role"] for player in team["players"]]
         if roles.count("starter") != sum(STARTING_SLOTS.values()):
