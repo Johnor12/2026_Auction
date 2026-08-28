@@ -41,13 +41,16 @@ _POINT_RATE_STEPS = 9
 # A replan brackets the previous shadow price this widely and bisects this many times.
 _WARM_RATE_SPREAD = 1.3
 _WARM_RATE_STEPS = 3
-# A replan at the previous shadow price that lands this close to the budget stands.
+# A replan at the previous shadow price that lands this close to the budget stands, and a
+# repriced plan whose cost has drifted no further than this from its planned cost keeps
+# its shadow price.
 _REPLAN_SLACK = 3
 # The expected highest opposing ceiling averages these fixed noise draws: the maximum of
 # eleven noisy ceilings sits above the maximum of their medians whenever owners contend.
 _ACQUISITION_DRAWS = 8
-# Rollouts reprice the market at least this often even when the plan itself is intact.
-_REPLAN_INTERVAL = 12
+# Rollouts use every core up to eight. The 4-core GitHub runner is fine flat out; the
+# 16-core development machine crashed under repeated all-core bursts.
+_MAX_WORKERS = 8
 
 
 @dataclass(slots=True)
@@ -741,6 +744,20 @@ def _plan_completion(
 
 
 
+def _repriced(team: Team, plan: Plan, prices: dict[int, int]) -> Plan:
+    """The same plan at today's prices; members above the legal maximum are still planned."""
+    prices = {
+        player_id: min(price, team.max_legal_bid) for player_id, price in prices.items()
+    }
+    return Plan(
+        plan.members,
+        prices,
+        plan.point_rate,
+        plan.value,
+        sum(prices[member.player_id] for member in plan.members),
+    )
+
+
 def _substitute(
     team: Team, plan: Plan, gone_id: int, candidates: list[Player], wire: dict
 ) -> Plan:
@@ -963,6 +980,8 @@ _ROLLOUT_CONTEXT: _RolloutContext | None = None
 def _init_rollout_worker(context: _RolloutContext) -> None:
     global _ROLLOUT_CONTEXT
     _ROLLOUT_CONTEXT = context
+    if hasattr(os, "nice"):
+        os.nice(10)
 
 
 def _rollout_worker(simulation: int) -> dict:
@@ -996,17 +1015,21 @@ def _run_rollout(context: _RolloutContext, simulation: int) -> dict:
 
     initial_open = context.state.open_slots
 
-    def replan(previous: Plan) -> Plan:
+    def reprice(players: list[Player]) -> dict[int, int]:
         per_slot = _curve_per_slot(state, available, consensus_rank, context.curve)
         static = _acquisition_prices(
-            available, _opponent_bidders(state, per_slot), source_by_roster,
+            players, _opponent_bidders(state, per_slot), source_by_roster,
             context.source_ranks, consensus_rank, context.curve,
         )
-        prices = _learned_prices(static, context.price_ratio, state.open_slots / initial_open)
-        return _plan_completion(mine, available, prices, context.wire, previous.point_rate)
+        return _learned_prices(static, context.price_ratio, state.open_slots / initial_open)
+
+    def replan(previous: Plan) -> Plan:
+        return _plan_completion(
+            mine, available, reprice(available), context.wire, previous.point_rate
+        )
 
     plan = context.plan
-    since_replan = 0
+    planned_cost = plan.cost
     closing: dict[int, int] = {}
     acquisition: dict[int, int] = {}
     mine_prices: dict[int, int] = {}
@@ -1057,14 +1080,22 @@ def _run_rollout(context: _RolloutContext, simulation: int) -> dict:
         state.taken.add(player.player_id)
         if winner.is_mine:
             mine_prices[player.player_id] = price
-        since_replan += 1
         if not mine.slots_left:
             continue
-        if winner.is_mine or since_replan >= _REPLAN_INTERVAL:
+        # Every purchase moves the market. Bids consume the planned players' prices, so
+        # those are refreshed after each one; the whole market is repriced and the plan
+        # redrawn when that matters: we bought, a planned player is gone, or the plan
+        # no longer costs what it planned.
+        if winner.is_mine:
             plan = replan(plan)
-            since_replan = 0
-        elif plan.has(player.player_id):
+            planned_cost = plan.cost
+            continue
+        if plan.has(player.player_id):
             plan = _substitute(mine, plan, player.player_id, available, context.wire)
+        plan = _repriced(mine, plan, {**plan.prices, **reprice(plan.members)})
+        if abs(plan.cost - planned_cost) > _REPLAN_SLACK or plan.cost > mine.remaining_budget:
+            plan = replan(plan)
+            planned_cost = plan.cost
 
     # Sleeper autodrafts a roster that fails to fill. Nothing should reach this; it is
     # counted so a policy that passes on everything fails validation instead of hiding.
@@ -1162,7 +1193,7 @@ def _stats(values: list, digits: int = 1) -> dict:
 
 def _simulate_auctions(context: _RolloutContext) -> tuple[dict, dict[int, dict]]:
     """Roll out complete auctions under uncertain nominations and field evaluations."""
-    workers = min(_AUCTION_SIMULATIONS, os.cpu_count() or 1)
+    workers = min(_AUCTION_SIMULATIONS, _MAX_WORKERS, os.cpu_count() or 1)
     if workers > 1:
         with Pool(workers, initializer=_init_rollout_worker, initargs=(context,)) as pool:
             results = pool.map(_rollout_worker, range(_AUCTION_SIMULATIONS), chunksize=1)

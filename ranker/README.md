@@ -83,10 +83,12 @@ opponent ceiling, capped by the highest. Nomination recommendations require a po
 
 Forty-eight fixed-seed rollouts finish the complete auction from the current state, in
 parallel across CPU cores, twice (see expected price). They vary nomination order,
-cold-start opponent sources, and opponent evaluation noise. The bidding policy re-plans
-whenever it buys, substitutes at the plan's shadow price when an opponent takes a planned
-player, and reprices the market every twelve nominations. A roster spot no policy filled
-is autofilled at $1 and reported; validation fails on it.
+cold-start opponent sources, and opponent evaluation noise. After every purchase the
+bidding policy reprices its planned players, because those prices are what its bids
+consume; it substitutes at the plan's shadow price when an opponent takes a planned
+player, and reprices the whole market and redraws the plan whenever it buys or the plan's
+cost drifts more than $3 from what it planned. A roster spot no policy filled is
+autofilled at $1 and reported; validation fails on it.
 
 Each row reports the 10th, 50th, and 90th percentile simulated closing price, the median
 realized acquisition price, its simulated acquisition rate, and our average price when
@@ -108,9 +110,10 @@ simulated purchases.
 
 The ranker examines at most 240 available players: remaining league purchases plus a
 72-player waiver buffer, capped at 240. The output board shrinks during the auction.
-Fixed seeds keep output deterministic regardless of the worker count. On the current
-480-player input, pricing and two passes of 48 rollouts take roughly 10 seconds on 16
-cores and 25 seconds on 4.
+Fixed seeds keep output deterministic regardless of the worker count. The rollouts use
+every core up to eight, at low priority. On the current 480-player input, pricing and two
+passes of 48 rollouts take roughly 20 seconds on eight workers and 25 seconds on the
+4-core GitHub runner.
 
 ## Output contract
 
