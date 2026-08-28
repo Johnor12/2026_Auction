@@ -35,6 +35,7 @@ from functools import lru_cache
 
 from .league import (
     DEDICATED_SLOTS,
+    HORIZON,
     POSITIONS,
     SLOT_CHAIN,
     STARTING_SLOTS,
@@ -47,6 +48,10 @@ from .pool import Player, by_position
 # year 1, and years 2-3 as one block. Every wire-level dict in the ranker is keyed by
 # horizon first, position second.
 HORIZONS = ("yr1", "yr23")
+# pool.py sets points == points_1yr under league.HORIZON == "1yr", so the years-2-3
+# horizon is structurally zero here and the lineup solver skips it; wire dicts still
+# carry both keys for the legacy snake modules.
+ACTIVE_HORIZONS = ("yr1",) if HORIZON == "1yr" else HORIZONS
 
 
 def horizon_points(p: Player, h: str) -> float:
@@ -326,7 +331,7 @@ def team_value(
             wire[h],
             h,
         )
-        for h in HORIZONS
+        for h in ACTIVE_HORIZONS
     )
 
 
@@ -346,7 +351,7 @@ def team_values_with_candidates(
 
     baseline = 0.0
     values = {candidate.player_id: 0.0 for candidate in candidates}
-    for h in HORIZONS:
+    for h in ACTIVE_HORIZONS:
         point_rows = {
             pos: tuple(
                 sorted(

@@ -7,10 +7,11 @@
     uv run rank.py --selftest
 
 The ranker uses fixed seeds so it is reproducible and small enough to recompute during a
-timed auction. It examines at most 240 available players, values each against my current
-roster, converts marginal lineup value into a hard maximum bid under my remaining budget,
-estimates the field price from opponent boards, rosters, and budgets, and rolls out the
-remaining auction to find recurring cost-efficient targets.
+timed auction. It examines at most 240 available players, estimates what beating the field
+costs for each from opponent boards, rosters, and budgets, plans the completion of my
+roster that is worth the most at those prices, prices every maximum bid against that
+plan, and rolls out the remaining auction (in parallel) to learn realized prices and
+recurring cost-efficient targets.
 """
 
 from __future__ import annotations
@@ -104,9 +105,12 @@ def main(argv: list[str] | None = None) -> int:
         simulation = payload["analysis"]["simulation"]
         print(
             f"simulation: {simulation['completed']}/{simulation['simulations']} legal "
-            f"auctions; my mean lineup {simulation['my_projected_lineup_points']['mean']}, "
+            f"auctions; my mean lineup {simulation['my_projected_lineup_points']['mean']} "
+            f"(rank {simulation['my_expected_points_rank']['mean']} of {payload['league']['teams']}), "
             f"mean spend ${simulation['my_spend']['mean']}, mean unused "
-            f"${simulation['my_unused_budget']['mean']}",
+            f"${simulation['my_unused_budget']['mean']}; opponents leave "
+            f"${simulation['opponent_unused_budget']['mean']} (at most "
+            f"${simulation['opponent_unused_budget']['high']})",
             file=sys.stderr,
         )
         print(
@@ -115,12 +119,23 @@ def main(argv: list[str] | None = None) -> int:
             f"{simulation['my_depth_lineup_points']['mean']} expected-lineup points",
             file=sys.stderr,
         )
+        print(
+            f"plan: ${mine['completion_cost']} for {mine['completion_gain']} points at "
+            f"{mine['points_per_discretionary_dollar']} points per discretionary dollar",
+            file=sys.stderr,
+        )
+        for row in mine["completion_plan"]:
+            print(
+                f"  ${row['expected_price']:>3} {row['name']:<24} {row['position']:<2} "
+                f"{row['points_1yr']:>6.1f} pts, gain {row['lineup_gain']:>5.1f}",
+                file=sys.stderr,
+            )
         print("pursue:", file=sys.stderr)
         for row in payload["purchase_strategy"]["recommendations"][:5]:
             print(
                 f"  {row['name']:<24} rostered {row['simulated_roster_rate']:.0%}; "
                 f"rollout ${row['simulated_price_low']}-${row['simulated_price_high']} "
-                f"(my max ${row['max_bid']})",
+                f"(my max ${row['max_bid']}, expected ${row['expected_price']})",
                 file=sys.stderr,
             )
         print("nominate:", file=sys.stderr)
@@ -134,7 +149,8 @@ def main(argv: list[str] | None = None) -> int:
         for row in payload["rankings"][:8]:
             print(
                 f"  ${row['max_bid']:>3} {row['name']:<24} {row['position']:<2} "
-                f"gain {row['lineup_gain']:>5.1f}, field ${row['field_price']}",
+                f"gain {row['lineup_gain']:>5.1f}, expected ${row['expected_price']}, "
+                f"field ${row['field_price']}",
                 file=sys.stderr,
             )
 

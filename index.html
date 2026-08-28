@@ -140,6 +140,8 @@ footer { margin-top:28px; color:var(--muted); font-size:12px; }
       <h2 id="myTitle">My auction</h2>
       <div class="grid metrics" id="myMetrics"></div>
       <div class="roster" id="myRoster"></div>
+      <div class="hint" id="planHint"></div>
+      <div class="roster" id="myPlan"></div>
     </section>
 
     <section>
@@ -152,6 +154,7 @@ footer { margin-top:28px; color:var(--muted); font-size:12px; }
             <th class="num">#</th><th>Player</th><th>Pos</th><th class="num">Projection</th>
             <th class="num" title="Marginal expected-lineup points on your roster now">Lineup gain</th>
             <th class="num" title="Stop bidding after this amount">Maximum bid</th>
+            <th class="num" title="What beating every opponent should cost: one dollar above the expected highest opponent ceiling, calibrated by the rollouts">Expected price</th>
             <th class="num" title="Modeled open-auction closing price from opponent max bids">Field price</th>
             <th class="num" title="Field price minus your maximum bid; positive is a nomination target">Drain gap</th>
             <th class="num" title="10th–90th percentile closing-price range across complete auction rollouts">Rollout price</th>
@@ -280,10 +283,17 @@ function renderMine(d) {
     metric(`${d.my_auction.slots_left}`, "open roster spots"),
     metric(money(d.my_auction.max_legal_bid), "hard legal max"),
     metric(money(d.my_auction.discretionary_budget), "above $1 reserves"),
-    metric(`${fmt(d.analysis.field_inflation)}×`, "league inflation"));
+    metric(`${fmt(d.analysis.field_inflation)}×`, "league inflation"),
+    metric(`${fmt(d.my_auction.points_per_discretionary_dollar)}`, "points per planned $"));
   const purchases = (mine?.players || []).map(player => h("span", {class:"purchase"},
     `${player.name} (${player.position}) `, h("strong", {}, money(player.amount))));
   $("myRoster").replaceChildren(...(purchases.length ? purchases : [h("span", {class:"note"}, "No players purchased yet.")]));
+  const plan = d.my_auction.completion_plan || [];
+  $("planHint").textContent = plan.length
+    ? `Plan: the completion worth the most at expected prices, ${money(d.my_auction.completion_cost)} for ${fmt(d.my_auction.completion_gain)} more expected-lineup points. Maximum bids are the prices at which a player and this plan's best alternative use of the money tie.`
+    : "Roster complete; no completion to plan.";
+  $("myPlan").replaceChildren(...plan.map(row => h("span", {class:"purchase", title:`${fmt(row.points_1yr)} projected points · ${fmt(row.lineup_gain)} expected-lineup points in the plan`},
+    `${row.name} (${row.position}) `, h("strong", {}, money(row.expected_price)))));
 }
 
 function renderBoard(d,state) {
@@ -297,11 +307,13 @@ function renderBoard(d,state) {
     return h("tr", {},
       h("td", {class:"num rank"}, row.rank),
       h("td", {}, h("strong", {}, row.name), row.is_rookie ? h("span", {class:"chip"}, "R") : null,
+        row.in_plan ? h("span", {class:"chip", title:"In the current completion plan"}, "plan") : null,
         h("div", {class:"pmeta"}, [row.team, row.age == null ? null : `age ${fmt(row.age)}`, `projection value #${row.projection_value_rank}`].filter(Boolean).join(" · "))),
       h("td", {}, positionChip(row.position), h("span", {class:"pmeta"}, ` ${row.positional_rank}`)),
       h("td", {class:"num"}, fmt(row.points_1yr)),
       h("td", {class:"num", title:`Roster factor ${fmt(row.roster_value_factor)}×`}, fmt(row.lineup_gain)),
       h("td", {class:"num max-bid"}, money(row.max_bid)),
+      h("td", {class:"num"}, money(row.expected_price)),
       h("td", {class:"num", title:bidders}, money(row.field_price)),
       h("td", {class:`num ${gapClass}`}, signedMoney(row.nomination_edge)),
       h("td", {class:"num"}, `${money(row.simulated_price_low)}–${money(row.simulated_price_high)}`),
@@ -337,8 +349,10 @@ function renderRollout(d) {
   const simulation = d.analysis.simulation;
   const teams = simulation.representative_teams || [];
   const number = simulation.representative_simulation;
+  const rank = simulation.my_expected_points_rank || {};
+  const unused = simulation.opponent_unused_budget || {};
   $("rolloutHint").textContent = teams.length
-    ? `Rollout ${number} of ${simulation.simulations}, selected because our final expected lineup value is closest to the median completed result. Projected points sum the healthy starters; expected points apply weekly unavailability and the best replacement from the bench or one waiver fallback.`
+    ? `Across ${simulation.simulations} rollouts our roster averages ${fmt(simulation.my_projected_lineup_points.mean)} expected points and finishes ${fmt(rank.mean)} of ${d.league.teams} on average (worst ${rank.high}), leaving ${money(simulation.my_unused_budget.mean)} unspent; opponents leave ${money(unused.mean)} on average and at most ${money(unused.high)}. Rollout ${number} is shown because our final expected lineup value is closest to the median completed result. Projected points sum the healthy starters; expected points apply weekly unavailability and the best replacement from the bench or one waiver fallback.`
     : "No completed rollout is available.";
   $("rolloutDetails").hidden = !teams.length;
   $("rolloutSummary").textContent = `Show all ${teams.length} completed teams`;

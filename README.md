@@ -9,7 +9,7 @@ The two live decisions are:
 
 - **Maximum bid:** the most this roster should pay for each available player, after its
   current players, remaining dollars, open slots, the $1-per-slot reserve, and the
-  remaining market are accounted for.
+  expected prices of every alternative purchase are accounted for.
 - **Nominate next:** players whose modeled field price is above our maximum bid, ordered
   by the dollars they should drain from opponents.
 - **Pursue:** cost-efficient players that repeatedly land on our roster in complete
@@ -64,46 +64,56 @@ The published files have distinct owners:
   and remaining budgets; auctions have no fabricated pending pick order
 - `data_source_matches.json`: the provider board closest to each opponent's purchases;
   it is a valid cold-start document with no owners before the first purchase
-- `rankings.json`: bid ceilings, field prices, rollout price ranges and roster rates,
-  pursue/nomination recommendations, team budgets, one representative full-league
-  rollout, and validation results
+- `rankings.json`: bid ceilings, expected and field prices, the completion plan, rollout
+  price ranges and roster rates, pursue/nomination recommendations, team budgets, one
+  representative full-league rollout, and validation results
 
 `sleeper_id` joins players across processes. `roster_id` is the auction team identity;
 `draft_slot` is not used as a future turn because an auction has no snake geometry.
 
 ## Auction pricing
 
-Our maximum bid does not copy the provider's player prices. The ranker greedily completes
-our current roster by marginal expected-lineup value, then allocates every remaining
-discretionary dollar across that completion value. Maximum bids use 1.8 times that
-allocation: a ceiling is one of many mutually exclusive limits, not expected spend, and
-purchases normally close below it. Fixed-seed full-auction comparisons selected 1.8x
-because lower ceilings stranded cash while higher ceilings reduced final expected-lineup
-value. Every bid remains capped by the hard legal ceiling that reserves $1 for every other
-open slot.
+Our maximum bid does not copy the provider's player prices. The ranker first estimates
+what beating the field should cost for every available player: one dollar above the
+expected highest opponent ceiling. It then plans the completion of our roster that adds
+the most expected-lineup points at those prices: a greedy completion at a shadow price
+per discretionary dollar, bisected until the plan just fits the budget (the better of the
+plans bracketing that point is kept, because spend jumps when a star enters). A maximum
+bid is the price at which a player and the plan's best alternative use of that money tie,
+so the ceilings are mutually consistent limits rather than a flat conversion of points
+into dollars. Every bid remains capped by the hard legal ceiling that reserves $1 for
+every other open slot; the plan itself reserves the cheapest real price, normally $2,
+because beating even one $1 bid costs $2.
 
 The FantasyPros 12-team, $200 curve supplies only the field's dollar scale. Each opponent
-maps its inferred provider order onto that curve, with roster depth, remaining budget,
-live inflation, and stable owner/player evaluation noise. Before purchases reveal an
-owner's likely source, cold-start owners are spread across the available public boards;
-the assignments and noise are deterministic so refreshes do not make the live board jump.
-An open ascending auction is modeled to close one dollar above the second-highest legal
-opponent ceiling, capped by the highest. `field_price - max_bid` is the nomination drain
-gap.
+maps its inferred provider order onto that curve and scales it by its own purse: dollars
+per open spot over curve dollars per remaining purchase. Owners who are rich for what is
+left bid up long before the end and dump the rest on their favorites; owners who spent
+early fill with $1 players. Nothing damps that, because unspent money is not a realistic
+outcome. Roster depth and stable owner/player evaluation noise adjust each ceiling.
+Before purchases reveal an owner's likely source, cold-start owners are spread across the
+available public boards; the assignments and noise are deterministic so refreshes do not
+make the live board jump. An open ascending auction is modeled to close one dollar above
+the second-highest legal opponent ceiling, capped by the highest. `field_price - max_bid`
+is the nomination drain gap.
 
-The ranker also rolls out 40 complete auctions. Nomination order, cold-start source
-assignments, and opponent evaluation noise vary per rollout. Our policy repeatedly
-revalues the remaining completion whenever a purchase changes it and bids
-projection-valued dollars; it is a practical sequential policy, not a clairvoyant global
-optimizer. Each player's 10th–90th percentile closing-price range and the fraction of
-rollouts in which we acquire him drive the **Pursue** list. Rollout diagnostics include
-unused budget, nominal starter points, the expected-lineup value added by useful depth,
-and starter/bench roles on a representative final roster. The dashboard also exposes all
-12 completed teams from that same representative rollout, including every purchase and
-price, individual projected points, starter/bench assignments, and each starting lineup's
-total projection for simulator sanity checks. Each team also reports expected lineup
-points under the backup/unavailability model and its auction spend split between starters
-and bench.
+The ranker also rolls out 48 complete auctions, in parallel across CPU cores. Nomination
+order, cold-start source assignments, and opponent evaluation noise vary per rollout. Our
+policy re-plans whenever it buys, substitutes when an opponent takes a planned player, and
+reprices the market every twelve nominations; it is a practical sequential policy, not a
+clairvoyant global optimizer. The rollouts run twice: the first pass records what beating
+the field actually cost at each player's nomination, which a static estimate cannot see
+(a player nominated later meets owners who have filled his position or spent down), and
+the second pass plans and bids with those learned prices. Each player's 10th–90th
+percentile closing-price range and the fraction of rollouts in which we acquire him drive
+the **Pursue** list. Rollout diagnostics include our unused budget, our rank among the 12
+teams by expected points, opponents' unused budget, nominal starter points, the
+expected-lineup value added by useful depth, and starter/bench roles on a representative
+final roster. The dashboard also exposes all 12 completed teams from that same
+representative rollout, including every purchase and price, individual projected points,
+starter/bench assignments, and each starting lineup's total projection for simulator
+sanity checks. Each team also reports expected lineup points under the
+backup/unavailability model and its auction spend split between starters and bench.
 
 Every simulated purchase preserves enough slots to fill the dedicated starter groups.
 The model also refuses additions beyond two players over its plausible completed-roster
@@ -117,9 +127,11 @@ candidates per team. As the draft fills, the board shrinks to the number of purc
 still needed plus the same 72-player waiver buffer. Drafted players outside that analysis
 horizon still count on their roster and against their team's budget.
 
-The published board remains deterministic because the rollouts use a fixed seed. On the
-current 480-player source pool, pricing plus 40 complete rollouts takes roughly 40 seconds
-on a single CPU; the network-bound full refresh can still be slower.
+The published board remains deterministic because the rollouts use fixed seeds and do not
+depend on how they are split across processes. On the current 480-player source pool,
+pricing plus two passes of 48 complete rollouts takes roughly 10 seconds on 16 cores and
+25 seconds on the 4-core GitHub runner; the network-bound full refresh can still be
+slower.
 
 ## Components
 
