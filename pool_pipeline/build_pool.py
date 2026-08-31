@@ -123,6 +123,8 @@ def read_projections(position: str, path: Path) -> list[dict]:
     for row in rows[1:]:
         if len(row) != len(header):
             continue  # the export pads with a blank spacer row and trailing empty lines
+        if not row[0].strip():
+            continue  # avg/high/low exports add "high"/"low" rows under an empty Player
         out.append(
             {
                 "name": row[0].strip(),

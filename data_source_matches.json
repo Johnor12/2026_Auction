@@ -1,56 +1,56 @@
 {
-  "generated_at": "2026-08-26T02:02:29+00:00",
+  "generated_at": "2026-08-31T19:15:29+00:00",
   "draft": {
     "draft_id": "1396606686923341824",
-    "draft_fetched_at": "2026-08-26T02:02:29+00:00",
+    "draft_fetched_at": "2026-08-31T19:15:29+00:00",
     "draft_started_at": "2026-08-31T20:00:00+00:00",
     "picks_analyzed": 0
   },
   "ranking_snapshot": {
-    "generated_at": "2026-08-26T01:03:45+00:00",
+    "generated_at": "2026-08-31T19:15:28+00:00",
     "source_count": 6,
     "sources": [
       {
         "id": "fantasypros_ecr",
         "name": "FantasyPros ECR",
         "format": "redraft superflex, half PPR expert consensus draft board; team count not a setting",
-        "fetched_at": "2026-08-26T01:03:40+00:00",
+        "fetched_at": "2026-08-31T19:09:05+00:00",
         "player_count": 945
       },
       {
         "id": "fantasypros_auction",
         "name": "FantasyPros auction values",
         "format": "12-team $200 half-PPR auction values (value = dollars) for a 2QB/2RB/3WR/1TE/1FLEX/5BN roster; the calculator has no superflex slot, so a second QB starter stands in for it",
-        "fetched_at": "2026-08-26T01:03:40+00:00",
-        "player_count": 276
+        "fetched_at": "2026-08-31T19:09:05+00:00",
+        "player_count": 278
       },
       {
         "id": "keeptradecut",
         "name": "KeepTradeCut",
         "format": "redraft superflex crowd values; KTC states 12 teams, 0.5 PPR, no TE premium",
-        "fetched_at": "2026-08-26T01:03:40+00:00",
+        "fetched_at": "2026-08-31T19:09:05+00:00",
         "player_count": 300
       },
       {
         "id": "fantasycalc",
         "name": "FantasyCalc",
         "format": "12-team redraft superflex, 0.5 PPR trade values",
-        "fetched_at": "2026-08-26T01:03:40+00:00",
-        "player_count": 191
+        "fetched_at": "2026-08-31T19:09:05+00:00",
+        "player_count": 197
       },
       {
         "id": "sleeper_adp",
         "name": "Sleeper ADP",
         "format": "Sleeper's ADP across its 2QB/superflex leagues, as this draft room shows it (value = ADP)",
-        "fetched_at": "2026-08-26T01:03:40+00:00",
-        "player_count": 767
+        "fetched_at": "2026-08-31T19:09:05+00:00",
+        "player_count": 1001
       },
       {
         "id": "ffcalculator",
         "name": "FFCalculator ADP",
         "format": "12-team 2QB mock-draft ADP from FantasyFootballCalculator (value = ADP)",
-        "fetched_at": "2026-08-26T01:03:40+00:00",
-        "player_count": 201
+        "fetched_at": "2026-08-31T19:09:05+00:00",
+        "player_count": 207
       }
     ]
   },

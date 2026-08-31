@@ -21,7 +21,9 @@ uv run pool_pipeline/fetch_sleeper.py        # refresh the Sleeper dump (manual)
 
 The CSVs are exported by hand: each position's page under
 <https://www.fantasypros.com/nfl/projections/> (the season view) has an Export button,
-and the files keep FantasyPros' own names. `fetch_sleeper.py` is manual too: Sleeper's
+and the files keep FantasyPros' own names. An export that includes average/high/low
+also works: the high/low variant rows carry an empty Player cell and are skipped, so
+only the consensus average is used. `fetch_sleeper.py` is manual too: Sleeper's
 player dump is about 14 MB and should not be downloaded more than once per day. The small
 metadata file beside it records when it was fetched, and the build warns when the dump is
 more than two weeks old.

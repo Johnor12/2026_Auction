@@ -1,6 +1,6 @@
 {
   "source": "https://api.sleeper.app/v1/draft/1396606686923341824",
-  "fetched_at": "2026-08-26T02:02:29+00:00",
+  "fetched_at": "2026-08-31T19:15:29+00:00",
   "draft_id": "1396606686923341824",
   "league_id": "1396606685107200000",
   "league_name": "Gnosis Auction 2026",
@@ -94,41 +94,41 @@
     {
       "draft_slot": 8,
       "roster_id": 8,
-      "user_id": null,
-      "username": null,
+      "user_id": "989314027073404928",
+      "username": "TrashCats",
       "team_name": null,
       "is_mine": false
     },
     {
       "draft_slot": 9,
       "roster_id": 9,
-      "user_id": null,
-      "username": null,
+      "user_id": "1137512722772414464",
+      "username": "clez",
       "team_name": null,
       "is_mine": false
     },
     {
       "draft_slot": 10,
       "roster_id": 10,
-      "user_id": null,
-      "username": null,
+      "user_id": "1265920059998490624",
+      "username": "huddynosleep",
       "team_name": null,
       "is_mine": false
     },
     {
       "draft_slot": 11,
       "roster_id": 11,
-      "user_id": null,
-      "username": null,
+      "user_id": "1263907185880989696",
+      "username": "RosscoDash",
       "team_name": null,
       "is_mine": false
     },
     {
       "draft_slot": 12,
       "roster_id": 12,
-      "user_id": null,
-      "username": null,
-      "team_name": null,
+      "user_id": "1263591775549792256",
+      "username": "wradcliff",
+      "team_name": "NotSoSour",
       "is_mine": false
     }
   ],
