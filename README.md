@@ -101,8 +101,13 @@ The ranker also rolls out 48 complete auctions, in parallel across CPU cores. No
 order, cold-start source assignments, and opponent evaluation noise vary per rollout. Our
 policy reprices its planned players after every purchase, substitutes when an opponent
 takes one, and redraws the whole plan against a repriced market whenever it buys or the
-plan's cost drifts more than $3; it is a practical sequential policy, not a clairvoyant
-global optimizer. The rollouts run twice: the first pass records what beating
+plan's cost drifts more than $3. Before keeping a purchase it would win, it replans with
+the purchase committed and walks away whenever that is worth less than the replan without
+the player — the shadow-rate bid cannot see the affordability cliff where one large
+purchase strands the rest of the roster. Bids on planned players also price ladder risk:
+the alternative to buying is the average of the two best substitute paths, not certainly
+the best one, which matters most for the thin superflex QB ladder. It remains a practical
+sequential policy, not a clairvoyant global optimizer. The rollouts run twice: the first pass records what beating
 the field actually cost at each player's nomination, which a static estimate cannot see
 (a player nominated later meets owners who have filled his position or spent down), and
 the second pass plans and bids with those learned prices. Each player's 10th–90th
@@ -130,9 +135,10 @@ horizon still count on their roster and against their team's budget.
 
 The published board remains deterministic because the rollouts use fixed seeds and do not
 depend on how they are split across processes. On the current 480-player source pool,
-pricing plus two passes of 48 complete rollouts takes roughly 20 seconds on eight
-workers and 25 seconds on the 4-core GitHub runner. The rollouts use every core up to
-eight, at low priority; the network-bound full refresh can still be slower.
+pricing plus two passes of 48 complete rollouts takes roughly 25 seconds on eight workers
+before the first purchase — the worst case — and falls fast as the board shrinks (about 3
+seconds at the halfway mark). The rollouts use every core up to eight, at low priority;
+the network-bound full refresh can still be slower.
 
 ## Components
 

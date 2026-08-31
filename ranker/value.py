@@ -105,12 +105,13 @@ def insert_sorted(seq: list[Player], p: Player, h: str) -> list[Player]:
 
 # --- expected lineup solver -------------------------------------------------------
 
-# The position-flexible starting seats beyond the dedicated slots. The max(m, q)
-# closed form in `_extra_expected_value` assumes exactly one superflex seat; the
-# flex count is free.
+# The position-flexible starting seats beyond the dedicated slots. The closed forms in
+# `_extra_expected_value` are specialized to this league's exactly one FLEX seat and one
+# superflex seat; it is the hottest arithmetic in the simulator.
 _FLEX_SLOTS = STARTING_SLOTS["FLEX"]
 _EXTRA_SLOTS = _FLEX_SLOTS + STARTING_SLOTS["SF"]
 assert STARTING_SLOTS["SF"] == 1
+assert _FLEX_SLOTS == 1
 
 
 @lru_cache(maxsize=32_768)
@@ -221,53 +222,58 @@ def _extra_expected_value(
 ) -> float:
     """E[points from the FLEX+SF seats], by layer-cake integrals over thresholds.
 
-    Weekly, those seats take the top-F pooled non-QB marginals plus the better of the
+    Weekly, those seats take the top pooled non-QB marginal plus the better of the
     next marginal and the backup QB (the single superflex seat). With N(>t) the pooled
     marginal count — independent across positions, so a small capped convolution — and
     F_q(t) = P(no QB marginal above t):
-        E[top-F sum]        = integral of E[min(F, N(>t))]
-        E[max(next, qb)]    = integral of 1 - P(N(>t) <= F) * F_q(t)
+        E[top marginal]     = integral of P(N(>t) >= 1)
+        E[max(next, qb)]    = integral of 1 - P(N(>t) <= 1) * F_q(t)
     Both integrands are piecewise constant between body values and zero past the last.
-    Only pooled cells 0..F are needed — E[min(F, N)] = F - sum_{j<F} (F - j) p_j and
-    P(N <= F) = p_0 + ... + p_F — so the convolution is truncated there.
+    Only pooled cells 0 and 1 are needed, so the three-position convolution is unrolled
+    to two running cells: this league has exactly one FLEX seat (asserted above), and
+    this function is the hottest arithmetic in the simulator.
     """
-    flex = _FLEX_SLOTS
-    cells = flex + 1
-    weights = tuple(float(flex - j) for j in range(flex))
     qb_brks, qb_rows = qb_table
-    brks = tuple(table[0] for table in flex_tables)
-    rows = tuple(table[1] for table in flex_tables)
-    sizes = tuple(len(b) for b in brks)
-    idx = [0] * len(flex_tables)
-    one = (1.0,) + (0.0,) * flex
-    all_breaks = sorted({*qb_brks, *(b for bs in brks for b in bs)})
-    nq = len(qb_brks)
-    iq = 0
+    (brk0, row0), (brk1, row1), (brk2, row2) = flex_tables
+    n0, n1, n2, nq = len(brk0), len(brk1), len(brk2), len(qb_brks)
+    i0 = i1 = i2 = iq = 0
     total = 0.0
     prev = 0.0
-    for x in all_breaks:
+    for x in sorted({*qb_brks, *brk0, *brk1, *brk2}):
         while iq < nq and qb_brks[iq] < x:
             iq += 1
         f_q = qb_rows[iq][0] if iq < nq else 1.0
-        pooled = one
-        for k in range(len(flex_tables)):
-            while idx[k] < sizes[k] and brks[k][idx[k]] < x:
-                idx[k] += 1
-            row = rows[k][idx[k]] if idx[k] < sizes[k] else one
-            nxt = [0.0] * cells
-            for i, p_i in enumerate(pooled):
-                for j in range(cells - i):
-                    nxt[i + j] += p_i * row[j]
-            pooled = nxt
-        top_f = flex - sum(w * p for w, p in zip(weights, pooled))
-        total += (x - prev) * (top_f + 1.0 - sum(pooled) * f_q)
+        # pooled cells: P(no marginal above x) and P(exactly one); a table past its last
+        # break contributes surely-zero marginals and leaves the cells unchanged.
+        p0, p1 = 1.0, 0.0
+        while i0 < n0 and brk0[i0] < x:
+            i0 += 1
+        if i0 < n0:
+            row = row0[i0]
+            p0, p1 = p0 * row[0], p0 * row[1] + p1 * row[0]
+        while i1 < n1 and brk1[i1] < x:
+            i1 += 1
+        if i1 < n1:
+            row = row1[i1]
+            p0, p1 = p0 * row[0], p0 * row[1] + p1 * row[0]
+        while i2 < n2 and brk2[i2] < x:
+            i2 += 1
+        if i2 < n2:
+            row = row2[i2]
+            p0, p1 = p0 * row[0], p0 * row[1] + p1 * row[0]
+        total += (x - prev) * (1.0 - p0 + 1.0 - (p0 + p1) * f_q)
         prev = x
     return total
 
+@lru_cache(maxsize=65_536)
 def _position_tables(
     projections: tuple[tuple[int, float], ...], wire_points: float, pos: str
 ) -> tuple[float, tuple]:
-    """A position's two closed-form pieces: dedicated-slot value and marginal law."""
+    """A position's two closed-form pieces: dedicated-slot value and marginal law.
+
+    Cached as a whole so the common repeat lookup hashes its key once instead of once
+    per inner cache.
+    """
     dedicated = DEDICATED_SLOTS[pos]
     unavailable = UNAVAILABLE_RATE[pos]
     ded_value = _position_expected_values(

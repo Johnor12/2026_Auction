@@ -5,9 +5,11 @@ description = "Draft pool, live board, and VOR rankings for a 12-team superflex 
 readme = "README.md"
 requires-python = ">=3.12"
 
-# Stdlib only, on purpose: the html parse uses html.parser, both fetches use
-# urllib.request, and the ranker is arithmetic. Nothing here needs a wheel.
-dependencies = []
+# Nearly stdlib: the html parse uses html.parser and both fetches use urllib.request.
+# numpy exists only to keep the ranker's market repricing inside the live-draft window.
+dependencies = [
+    "numpy>=2.5.2",
+]
 
 [tool.uv]
 # A folder of scripts, not an importable package — there is nothing to build or

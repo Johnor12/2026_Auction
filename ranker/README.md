@@ -67,11 +67,24 @@ binding rate competes with the free plan just above it and the better one is kep
 plan reserves the cheapest real price (normally $2) for every unfilled spot; when the
 budget cannot cover that it reserves the legal $1 and goes short.
 
-A maximum bid is the price at which the player and the plan's best alternative use of
-that money tie: for a planned player, the best substitute's price plus the value lost by
-swapping; for anyone else, the best planned player he could displace, that player's price
-plus the value gained. Unplanned spots take any improvement for $1. The result is capped
-by `remaining budget - $1 * (other open slots)`.
+A maximum bid is the price at which the player and the plan's alternative use of that
+money tie: for a planned player, the substitute path's price plus the value lost by
+swapping — where the substitute path averages the two best substitute nets, because the
+best substitute is himself contested and losing a planned player does not certainly hand
+us the next-best body (a deep, flat ladder leaves the bid unchanged; a thin superflex-QB
+ladder raises it); for anyone else, the best planned player he could displace, that
+player's price plus the value gained. Unplanned spots take any improvement for $1. The
+result is capped by `remaining budget - $1 * (other open slots)`. Plan prices are not
+capped at the legal maximum: a player the budget cannot buy must look expensive, not
+artificially cheap, or a poor endgame plans around stars it can never win.
+
+The formula bid linearizes the budget at the plan's shadow rate, which cannot see the
+affordability cliff where one large purchase strands the rest of the completion. When a
+published bid is a large share of the legal maximum (40% or more), it is verified the
+way the rollout policy verifies a purchase — replanning with the purchase committed at
+that price must not be worth less than the replan without the player — and bisected down
+to the largest price that passes. Early in the auction no bid reaches that floor and the
+check costs nothing.
 
 ## Field price and nominations
 
@@ -87,8 +100,12 @@ cold-start opponent sources, and opponent evaluation noise. After every purchase
 bidding policy reprices its planned players, because those prices are what its bids
 consume; it substitutes at the plan's shadow price when an opponent takes a planned
 player, and reprices the whole market and redraws the plan whenever it buys or the plan's
-cost drifts more than $3 from what it planned. A roster spot no policy filled is
-autofilled at $1 and reported; validation fails on it.
+cost drifts more than $3 from what it planned. Before the policy keeps a purchase it
+would win, it verifies it: the replan with the purchase committed must not be worth less
+(beyond a small greedy-noise tolerance) than the replan without the player, who goes to
+the field when we walk away. The accepted replan is the post-purchase replan, so
+acceptance costs nothing extra; the summary reports walkaways per rollout. A roster spot
+no policy filled is autofilled at $1 and reported; validation fails on it.
 
 Each row reports the 10th, 50th, and 90th percentile simulated closing price, the median
 realized acquisition price, its simulated acquisition rate, and our average price when
@@ -111,9 +128,10 @@ simulated purchases.
 The ranker examines at most 240 available players: remaining league purchases plus a
 72-player waiver buffer, capped at 240. The output board shrinks during the auction.
 Fixed seeds keep output deterministic regardless of the worker count. The rollouts use
-every core up to eight, at low priority. On the current 480-player input, pricing and two
-passes of 48 rollouts take roughly 20 seconds on eight workers and 25 seconds on the
-4-core GitHub runner.
+every core up to eight, at low priority; market repricing is vectorized with numpy. On
+the current 480-player input, pricing and two passes of 48 rollouts take roughly 25
+seconds on eight workers before the first purchase — the worst case — and fall fast as
+the board shrinks: about 3 seconds at the halfway mark and under a second late.
 
 ## Output contract
 

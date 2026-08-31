@@ -1,13 +1,13 @@
 {
   "source": "https://api.sleeper.app/v1/draft/1396606686923341824",
-  "fetched_at": "2026-08-31T19:15:29+00:00",
+  "fetched_at": "2026-08-31T20:24:53+00:00",
   "draft_id": "1396606686923341824",
   "league_id": "1396606685107200000",
   "league_name": "Gnosis Auction 2026",
   "season": "2026",
-  "status": "pre_draft",
-  "started_at": "2026-08-31T20:00:00+00:00",
-  "last_picked_at": "2026-08-26T00:27:44+00:00",
+  "status": "drafting",
+  "started_at": "2026-08-31T20:05:20+00:00",
+  "last_picked_at": "2026-08-31T20:22:04+00:00",
   "format": {
     "type": "auction",
     "teams": 12,
@@ -17,58 +17,29 @@
     "scoring_type": "2qb"
   },
   "pick_count": 168,
-  "picks_made": 0,
-  "picks_pending": 168,
+  "picks_made": 19,
+  "picks_pending": 149,
   "on_the_clock": null,
   "me": {
     "username": "johnor",
     "user_id": "1127785716420898816",
-    "draft_slot": 1,
+    "draft_slot": 9,
     "roster_id": 1
   },
   "my_next_pick": null,
   "board_derivation": {
     "method": "auction; made purchases only (there is no pending pick order)",
-    "checked_against_made_picks": 0,
-    "slot_and_roster_agree": 0,
-    "rounds_exercised": [],
+    "checked_against_made_picks": 19,
+    "slot_and_roster_agree": 19,
+    "rounds_exercised": [
+      1,
+      2
+    ],
     "mismatches": []
   },
   "slots": [
     {
       "draft_slot": 1,
-      "roster_id": 1,
-      "user_id": "1127785716420898816",
-      "username": "johnor",
-      "team_name": null,
-      "is_mine": true
-    },
-    {
-      "draft_slot": 2,
-      "roster_id": 2,
-      "user_id": "1263905625868337152",
-      "username": "ODubsssss",
-      "team_name": null,
-      "is_mine": false
-    },
-    {
-      "draft_slot": 3,
-      "roster_id": 3,
-      "user_id": "1001971607738499072",
-      "username": "bconz33",
-      "team_name": "Dorcilicious III",
-      "is_mine": false
-    },
-    {
-      "draft_slot": 4,
-      "roster_id": 4,
-      "user_id": "1263892687740735488",
-      "username": "import_gbu",
-      "team_name": null,
-      "is_mine": false
-    },
-    {
-      "draft_slot": 5,
       "roster_id": 5,
       "user_id": "1263349077467213824",
       "username": "Rartaz",
@@ -76,39 +47,7 @@
       "is_mine": false
     },
     {
-      "draft_slot": 6,
-      "roster_id": 6,
-      "user_id": "921194560955441152",
-      "username": "mubsy",
-      "team_name": "Gnosis Gophers",
-      "is_mine": false
-    },
-    {
-      "draft_slot": 7,
-      "roster_id": 7,
-      "user_id": "1397962066194640896",
-      "username": "camgonzo1",
-      "team_name": null,
-      "is_mine": false
-    },
-    {
-      "draft_slot": 8,
-      "roster_id": 8,
-      "user_id": "989314027073404928",
-      "username": "TrashCats",
-      "team_name": null,
-      "is_mine": false
-    },
-    {
-      "draft_slot": 9,
-      "roster_id": 9,
-      "user_id": "1137512722772414464",
-      "username": "clez",
-      "team_name": null,
-      "is_mine": false
-    },
-    {
-      "draft_slot": 10,
+      "draft_slot": 2,
       "roster_id": 10,
       "user_id": "1265920059998490624",
       "username": "huddynosleep",
@@ -116,7 +55,47 @@
       "is_mine": false
     },
     {
-      "draft_slot": 11,
+      "draft_slot": 3,
+      "roster_id": 7,
+      "user_id": "1397962066194640896",
+      "username": "camgonzo1",
+      "team_name": null,
+      "is_mine": false
+    },
+    {
+      "draft_slot": 4,
+      "roster_id": 12,
+      "user_id": "1263591775549792256",
+      "username": "wradcliff",
+      "team_name": "NotSoSour",
+      "is_mine": false
+    },
+    {
+      "draft_slot": 5,
+      "roster_id": 8,
+      "user_id": "989314027073404928",
+      "username": "TrashCats",
+      "team_name": null,
+      "is_mine": false
+    },
+    {
+      "draft_slot": 6,
+      "roster_id": 2,
+      "user_id": "1263905625868337152",
+      "username": "ODubsssss",
+      "team_name": null,
+      "is_mine": false
+    },
+    {
+      "draft_slot": 7,
+      "roster_id": 4,
+      "user_id": "1263892687740735488",
+      "username": "import_gbu",
+      "team_name": null,
+      "is_mine": false
+    },
+    {
+      "draft_slot": 8,
       "roster_id": 11,
       "user_id": "1263907185880989696",
       "username": "RosscoDash",
@@ -124,11 +103,35 @@
       "is_mine": false
     },
     {
+      "draft_slot": 9,
+      "roster_id": 1,
+      "user_id": "1127785716420898816",
+      "username": "johnor",
+      "team_name": null,
+      "is_mine": true
+    },
+    {
+      "draft_slot": 10,
+      "roster_id": 9,
+      "user_id": "1137512722772414464",
+      "username": "clez",
+      "team_name": null,
+      "is_mine": false
+    },
+    {
+      "draft_slot": 11,
+      "roster_id": 6,
+      "user_id": "921194560955441152",
+      "username": "mubsy",
+      "team_name": "Gnosis Gophers",
+      "is_mine": false
+    },
+    {
       "draft_slot": 12,
-      "roster_id": 12,
-      "user_id": "1263591775549792256",
-      "username": "wradcliff",
-      "team_name": "NotSoSour",
+      "roster_id": 3,
+      "user_id": "1001971607738499072",
+      "username": "bconz33",
+      "team_name": "Dorcilicious III",
       "is_mine": false
     }
   ],
@@ -142,10 +145,10 @@
     },
     {
       "roster_id": 2,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 58,
+      "remaining": 142,
+      "slots_filled": 2,
+      "slots_left": 12
     },
     {
       "roster_id": 3,
@@ -156,66 +159,66 @@
     },
     {
       "roster_id": 4,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 57,
+      "remaining": 143,
+      "slots_filled": 1,
+      "slots_left": 13
     },
     {
       "roster_id": 5,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 20,
+      "remaining": 180,
+      "slots_filled": 1,
+      "slots_left": 13
     },
     {
       "roster_id": 6,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 91,
+      "remaining": 109,
+      "slots_filled": 2,
+      "slots_left": 12
     },
     {
       "roster_id": 7,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 99,
+      "remaining": 101,
+      "slots_filled": 2,
+      "slots_left": 12
     },
     {
       "roster_id": 8,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 46,
+      "remaining": 154,
+      "slots_filled": 1,
+      "slots_left": 13
     },
     {
       "roster_id": 9,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 105,
+      "remaining": 95,
+      "slots_filled": 2,
+      "slots_left": 12
     },
     {
       "roster_id": 10,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 145,
+      "remaining": 55,
+      "slots_filled": 4,
+      "slots_left": 10
     },
     {
       "roster_id": 11,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 134,
+      "remaining": 66,
+      "slots_filled": 3,
+      "slots_left": 11
     },
     {
       "roster_id": 12,
-      "spent": 0,
-      "remaining": 200,
-      "slots_filled": 0,
-      "slots_left": 14
+      "spent": 60,
+      "remaining": 140,
+      "slots_filled": 1,
+      "slots_left": 13
     }
   ],
   "traded_picks": [],
@@ -236,5 +239,329 @@
     "is_keeper": "True when Sleeper flagged the pick as a keeper. False for a normal pick.",
     "amount": "Winning auction bid in dollars; null for non-auction drafts."
   },
-  "picks": []
+  "picks": [
+    {
+      "pick_no": 1,
+      "round": 1,
+      "pick_in_round": 1,
+      "draft_slot": 7,
+      "roster_id": 4,
+      "user_id": "1263892687740735488",
+      "username": "import_gbu",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "9509",
+      "name": "Bijan Robinson",
+      "position": "RB",
+      "team": "ATL",
+      "is_keeper": false,
+      "amount": 57
+    },
+    {
+      "pick_no": 2,
+      "round": 1,
+      "pick_in_round": 2,
+      "draft_slot": 3,
+      "roster_id": 7,
+      "user_id": "1397962066194640896",
+      "username": "camgonzo1",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "9221",
+      "name": "Jahmyr Gibbs",
+      "position": "RB",
+      "team": "DET",
+      "is_keeper": false,
+      "amount": 62
+    },
+    {
+      "pick_no": 3,
+      "round": 1,
+      "pick_in_round": 3,
+      "draft_slot": 11,
+      "roster_id": 6,
+      "user_id": "921194560955441152",
+      "username": "mubsy",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "4881",
+      "name": "Lamar Jackson",
+      "position": "QB",
+      "team": "BAL",
+      "is_keeper": false,
+      "amount": 44
+    },
+    {
+      "pick_no": 4,
+      "round": 1,
+      "pick_in_round": 4,
+      "draft_slot": 10,
+      "roster_id": 9,
+      "user_id": "1137512722772414464",
+      "username": "clez",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "4984",
+      "name": "Josh Allen",
+      "position": "QB",
+      "team": "BUF",
+      "is_keeper": false,
+      "amount": 64
+    },
+    {
+      "pick_no": 5,
+      "round": 1,
+      "pick_in_round": 5,
+      "draft_slot": 8,
+      "roster_id": 11,
+      "user_id": "1263907185880989696",
+      "username": "RosscoDash",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "7564",
+      "name": "Ja'Marr Chase",
+      "position": "WR",
+      "team": "CIN",
+      "is_keeper": false,
+      "amount": 49
+    },
+    {
+      "pick_no": 6,
+      "round": 1,
+      "pick_in_round": 6,
+      "draft_slot": 8,
+      "roster_id": 11,
+      "user_id": "1263907185880989696",
+      "username": "RosscoDash",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "4866",
+      "name": "Saquon Barkley",
+      "position": "RB",
+      "team": "PHI",
+      "is_keeper": false,
+      "amount": 45
+    },
+    {
+      "pick_no": 7,
+      "round": 1,
+      "pick_in_round": 7,
+      "draft_slot": 2,
+      "roster_id": 10,
+      "user_id": "1265920059998490624",
+      "username": "huddynosleep",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "9493",
+      "name": "Puka Nacua",
+      "position": "WR",
+      "team": "LAR",
+      "is_keeper": false,
+      "amount": 53
+    },
+    {
+      "pick_no": 8,
+      "round": 1,
+      "pick_in_round": 8,
+      "draft_slot": 4,
+      "roster_id": 12,
+      "user_id": "1263591775549792256",
+      "username": "wradcliff",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "9488",
+      "name": "Jaxon Smith-Njigba",
+      "position": "WR",
+      "team": "SEA",
+      "is_keeper": false,
+      "amount": 60
+    },
+    {
+      "pick_no": 9,
+      "round": 1,
+      "pick_in_round": 9,
+      "draft_slot": 8,
+      "roster_id": 11,
+      "user_id": "1263907185880989696",
+      "username": "RosscoDash",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "12527",
+      "name": "Ashton Jeanty",
+      "position": "RB",
+      "team": "LV",
+      "is_keeper": false,
+      "amount": 40
+    },
+    {
+      "pick_no": 10,
+      "round": 1,
+      "pick_in_round": 10,
+      "draft_slot": 10,
+      "roster_id": 9,
+      "user_id": "1137512722772414464",
+      "username": "clez",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "8138",
+      "name": "James Cook",
+      "position": "RB",
+      "team": "BUF",
+      "is_keeper": false,
+      "amount": 41
+    },
+    {
+      "pick_no": 11,
+      "round": 1,
+      "pick_in_round": 11,
+      "draft_slot": 11,
+      "roster_id": 6,
+      "user_id": "921194560955441152",
+      "username": "mubsy",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "11564",
+      "name": "Drake Maye",
+      "position": "QB",
+      "team": "NE",
+      "is_keeper": false,
+      "amount": 47
+    },
+    {
+      "pick_no": 12,
+      "round": 1,
+      "pick_in_round": 12,
+      "draft_slot": 2,
+      "roster_id": 10,
+      "user_id": "1265920059998490624",
+      "username": "huddynosleep",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "4199",
+      "name": "Aaron Jones",
+      "position": "RB",
+      "team": "MIN",
+      "is_keeper": false,
+      "amount": 6
+    },
+    {
+      "pick_no": 13,
+      "round": 2,
+      "pick_in_round": 1,
+      "draft_slot": 2,
+      "roster_id": 10,
+      "user_id": "1265920059998490624",
+      "username": "huddynosleep",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "4034",
+      "name": "Christian McCaffrey",
+      "position": "RB",
+      "team": "SF",
+      "is_keeper": false,
+      "amount": 48
+    },
+    {
+      "pick_no": 14,
+      "round": 2,
+      "pick_in_round": 2,
+      "draft_slot": 2,
+      "roster_id": 10,
+      "user_id": "1265920059998490624",
+      "username": "huddynosleep",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "11560",
+      "name": "Caleb Williams",
+      "position": "QB",
+      "team": "CHI",
+      "is_keeper": false,
+      "amount": 38
+    },
+    {
+      "pick_no": 15,
+      "round": 2,
+      "pick_in_round": 3,
+      "draft_slot": 3,
+      "roster_id": 7,
+      "user_id": "1397962066194640896",
+      "username": "camgonzo1",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "6770",
+      "name": "Joe Burrow",
+      "position": "QB",
+      "team": "CIN",
+      "is_keeper": false,
+      "amount": 37
+    },
+    {
+      "pick_no": 16,
+      "round": 2,
+      "pick_in_round": 4,
+      "draft_slot": 1,
+      "roster_id": 5,
+      "user_id": "1263349077467213824",
+      "username": "Rartaz",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "3163",
+      "name": "Jared Goff",
+      "position": "QB",
+      "team": "DET",
+      "is_keeper": false,
+      "amount": 20
+    },
+    {
+      "pick_no": 17,
+      "round": 2,
+      "pick_in_round": 5,
+      "draft_slot": 6,
+      "roster_id": 2,
+      "user_id": "1263905625868337152",
+      "username": "ODubsssss",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "4046",
+      "name": "Patrick Mahomes",
+      "position": "QB",
+      "team": "KC",
+      "is_keeper": false,
+      "amount": 29
+    },
+    {
+      "pick_no": 18,
+      "round": 2,
+      "pick_in_round": 6,
+      "draft_slot": 6,
+      "roster_id": 2,
+      "user_id": "1263905625868337152",
+      "username": "ODubsssss",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "8137",
+      "name": "George Pickens",
+      "position": "WR",
+      "team": "DAL",
+      "is_keeper": false,
+      "amount": 29
+    },
+    {
+      "pick_no": 19,
+      "round": 2,
+      "pick_in_round": 7,
+      "draft_slot": 5,
+      "roster_id": 8,
+      "user_id": "989314027073404928",
+      "username": "TrashCats",
+      "is_mine": false,
+      "status": "made",
+      "sleeper_id": "6813",
+      "name": "Jonathan Taylor",
+      "position": "RB",
+      "team": "IND",
+      "is_keeper": false,
+      "amount": 46
+    }
+  ]
 }

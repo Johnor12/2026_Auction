@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import heapq
 import math
 import os
 import random
@@ -9,6 +10,8 @@ import statistics
 from dataclasses import dataclass, field
 from hashlib import blake2s
 from multiprocessing import Pool
+
+import numpy as np
 
 from .league import (
     ANALYSIS_POOL_MAX,
@@ -45,6 +48,10 @@ _WARM_RATE_STEPS = 3
 # repriced plan whose cost has drifted no further than this from its planned cost keeps
 # its shadow price.
 _REPLAN_SLACK = 3
+# A purchase the policy would win is kept only when the replan with it committed does not
+# lose more expected-lineup points than this; the tolerance absorbs greedy noise between
+# two plans so near-break-even purchases are not rejected (and re-rejected) all auction.
+_WALKAWAY_TOLERANCE = 1.5
 # The expected highest opposing ceiling averages these fixed noise draws: the maximum of
 # eleven noisy ceilings sits above the maximum of their medians whenever owners contend.
 _ACQUISITION_DRAWS = 8
@@ -446,6 +453,43 @@ def _acquisition_noise() -> list[list[float]]:
 
 
 _ACQUISITION_NOISE = _acquisition_noise()
+_ACQUISITION_NOISE_ARRAY = np.array(_ACQUISITION_NOISE)
+
+
+@dataclass(slots=True)
+class _PriceGrid:
+    """Static per-candidate market arrays: repricing runs every few simulated purchases,
+    so the source-order dollar bases are laid out once and each call is vector math."""
+
+    index: dict[int, int]
+    pos_index: np.ndarray
+    base: dict[str, np.ndarray]
+    consensus_base: np.ndarray
+
+    def base_for(self, source_id: str) -> np.ndarray:
+        return self.base.get(source_id, self.consensus_base)
+
+
+def _price_grid(
+    candidates: list[Player],
+    source_ranks: dict[str, dict[int, int]],
+    consensus_rank: dict[int, int],
+    curve: list[float],
+) -> _PriceGrid:
+    index = {player.player_id: row for row, player in enumerate(candidates)}
+    pos_index = np.array(
+        [POSITIONS.index(player.position) for player in candidates], dtype=np.intp
+    )
+    base = {
+        source_id: np.array(
+            [_field_base(ranks[player.player_id], curve) for player in candidates]
+        )
+        for source_id, ranks in source_ranks.items()
+    }
+    consensus_base = np.array(
+        [_field_base(consensus_rank[player.player_id], curve) for player in candidates]
+    )
+    return _PriceGrid(index, pos_index, base, consensus_base)
 
 
 def _field_price(
@@ -502,38 +546,43 @@ def _acquisition_prices(
     candidates: list[Player],
     bidders: list[_Bidder],
     source_by_roster: dict[int, str],
-    source_ranks: dict[str, dict[int, int]],
-    consensus_rank: dict[int, int],
-    curve: list[float],
+    grid: _PriceGrid,
 ) -> dict[int, int]:
     """What beating the field should cost us: one dollar above the expected highest ceiling."""
-    prices: dict[int, int] = {}
-    for player in candidates:
-        ceilings = [
-            (
-                _opponent_ceiling(
-                    player,
-                    bidder,
-                    source_by_roster[bidder.team.roster_id],
-                    source_ranks,
-                    consensus_rank,
-                    curve,
-                ),
-                bidder.max_legal_bid,
-            )
-            for bidder in bidders
-        ]
-        if not any(ceiling > 0.0 for ceiling, _ in ceilings):
-            prices[player.player_id] = MIN_BID
+    if not candidates or not bidders:
+        return {player.player_id: MIN_BID for player in candidates}
+    rows = np.fromiter(
+        (grid.index[player.player_id] for player in candidates),
+        dtype=np.intp,
+        count=len(candidates),
+    )
+    pos = grid.pos_index[rows]
+    ceilings = np.empty((len(candidates), len(bidders)))
+    caps = np.empty(len(bidders))
+    for column, bidder in enumerate(bidders):
+        caps[column] = bidder.max_legal_bid
+        if bidder.max_legal_bid < MIN_BID:
+            ceilings[:, column] = 0.0
             continue
-        total = 0
-        for draw in _ACQUISITION_NOISE:
-            total += max(
-                _noisy_bid(ceiling, cap, noise)
-                for (ceiling, cap), noise in zip(ceilings, draw)
-            )
-        prices[player.player_id] = math.floor(total / len(_ACQUISITION_NOISE) + 0.5) + MIN_BID
-    return prices
+        factor = np.array(
+            [
+                bidder.factor[position] if position in bidder.legal else 0.0
+                for position in POSITIONS
+            ]
+        )
+        ceilings[:, column] = (
+            grid.base_for(source_by_roster[bidder.team.roster_id])[rows]
+            * bidder.purse
+            * factor[pos]
+        )
+    noise = _ACQUISITION_NOISE_ARRAY[:, : len(bidders)]
+    bids = np.floor(ceilings[None, :, :] * noise[:, None, :] + 0.5)
+    np.clip(bids, float(MIN_BID), caps[None, None, :], out=bids)
+    bids[np.broadcast_to(ceilings[None, :, :] <= 0.0, bids.shape)] = 0.0
+    totals = bids.max(axis=2).sum(axis=0)
+    prices = np.floor(totals / len(_ACQUISITION_NOISE) + 0.5).astype(int) + MIN_BID
+    prices[~(ceilings > 0.0).any(axis=1)] = MIN_BID
+    return {player.player_id: int(price) for player, price in zip(candidates, prices)}
 
 
 def _source_by_roster(
@@ -678,11 +727,10 @@ def _plan_completion(
     # price, not the legal $1, for every spot it has not filled yet. Once the budget
     # cannot cover that, the reserve drops to the legal $1 and the plan goes short:
     # unplanned spots are then filled by $1 bids that win uncontested nominations.
-    prices = {
-        player.player_id: min(prices[player.player_id], team.max_legal_bid)
-        for player in candidates
-    }
-    reserve = min(prices.values())
+    # Prices are deliberately not capped at the legal maximum: a player the budget
+    # cannot buy must look expensive, not artificially cheap, or a poor endgame plans
+    # around stars it can never win.
+    reserve = min(prices[player.player_id] for player in candidates)
     if reserve * slots > budget:
         reserve = MIN_BID
     affordable = [
@@ -715,8 +763,9 @@ def _plan_completion(
         bound_fit = greedy(low)
         while (fit := greedy(high))[2] and high < _MAX_POINT_RATE:
             low, high, bound_fit = high, high * _WARM_RATE_SPREAD, fit
-        while low > 0.02 and not (lower := greedy(low))[2]:
-            high, low, fit = low, low / _WARM_RATE_SPREAD, lower
+        while low > 0.02 and not bound_fit[2]:
+            high, fit = low, bound_fit
+            low /= _WARM_RATE_SPREAD
             bound_fit = greedy(low)
         steps = _WARM_RATE_STEPS
     else:
@@ -810,12 +859,18 @@ def _plan_max_bid(
             if candidate.player_id not in member_ids and candidate.position in legal_positions
         ]
         base, values = team_values_with_candidates(roster + others, wire, substitutes)
-        # The best replacement plan, net of what it costs; with no replacement the spot
-        # simply stays empty.
-        alternative = max(
-            (values[s.player_id] - rate * plan.prices[s.player_id] for s in substitutes),
-            default=base,
+        # The replacement plan, net of what it costs; with no replacement the spot
+        # simply stays empty. The best substitute is himself contested, so losing this
+        # player means winning one of the next bodies, not certainly the best one:
+        # averaging the two best nets prices that ladder risk, and a flat ladder (deep
+        # position) leaves the bid unchanged.
+        nets = heapq.nlargest(
+            2, (values[s.player_id] - rate * plan.prices[s.player_id] for s in substitutes)
         )
+        if not nets:
+            alternative = base
+        else:
+            alternative = (nets[0] + (nets[1] if len(nets) > 1 else base)) / 2
         bid = (plan.value - alternative) / rate
     else:
         bid = 0.0
@@ -958,6 +1013,7 @@ class _RolloutContext:
     consensus_rank: dict[int, int]
     source_by_roster: dict[int, str]
     matched_rosters: set[int]
+    grid: _PriceGrid
     plan: Plan
     # Realized-over-static acquisition price per player, learned from a first rollout
     # pass: a static estimate cannot see that a player nominated later meets owners who
@@ -1018,8 +1074,7 @@ def _run_rollout(context: _RolloutContext, simulation: int) -> dict:
     def reprice(players: list[Player]) -> dict[int, int]:
         per_slot = _curve_per_slot(state, available, consensus_rank, context.curve)
         static = _acquisition_prices(
-            players, _opponent_bidders(state, per_slot), source_by_roster,
-            context.source_ranks, consensus_rank, context.curve,
+            players, _opponent_bidders(state, per_slot), source_by_roster, context.grid
         )
         return _learned_prices(static, context.price_ratio, state.open_slots / initial_open)
 
@@ -1035,6 +1090,7 @@ def _run_rollout(context: _RolloutContext, simulation: int) -> dict:
     mine_prices: dict[int, int] = {}
     considered: set[int] = set()
     affordable: set[int] = set()
+    walkaways = 0
 
     for pick_no, player in enumerate(nominations, start=context.state.picks_made + 1):
         if not state.open_slots:
@@ -1063,13 +1119,62 @@ def _run_rollout(context: _RolloutContext, simulation: int) -> dict:
                 bids.append((bid, rng.random(), bidder.team))
         if _purchase_is_legal(mine, player):
             acquisition[player.player_id] = highest_opponent + MIN_BID
-        if my_bid and my_bid >= highest_opponent + MIN_BID:
-            affordable.add(player.player_id)
         if not bids:
             continue
         bids.sort(key=lambda item: (-item[0], item[1]))
         ceiling, _, winner = bids[0]
         price = MIN_BID if len(bids) == 1 else min(ceiling, bids[1][0] + MIN_BID)
+        if winner.is_mine:
+            # The formula bid linearizes the budget at the plan's shadow rate, which
+            # cannot see the affordability cliff where one purchase strands the rest of
+            # the completion. Verify by replanning with the purchase committed; an
+            # accepted attempt is the post-purchase replan, so acceptance costs nothing
+            # extra. The stale plan overstates the walk-away future (it assumes every
+            # planned player stays purchasable at his expected price), so a purchase it
+            # rejects is re-judged against the honest alternative: the replan without
+            # this player, because walking away hands him to the field.
+            index = available.index(player)
+            purchase = Purchase(
+                pick_no, player.sleeper_id, player.name, player.position, player.team, price, player
+            )
+            mine.purchases.append(purchase)
+            available.pop(index)
+            state.taken.add(player.player_id)
+            attempt = replan(plan)
+            accepted = attempt.value >= plan.value - _WALKAWAY_TOLERANCE
+            if not accepted:
+                mine.purchases.pop()
+                walkaway = replan(plan)
+                accepted = attempt.value >= walkaway.value - _WALKAWAY_TOLERANCE
+                if accepted:
+                    mine.purchases.append(purchase)
+                else:
+                    # The walkaway replan priced the market without this player; he
+                    # stays available when nobody else bids, so keep his old price.
+                    plan = Plan(
+                        walkaway.members,
+                        {**plan.prices, **walkaway.prices},
+                        walkaway.point_rate,
+                        walkaway.value,
+                        walkaway.cost,
+                    )
+                    planned_cost = plan.cost
+            if accepted:
+                if my_bid >= highest_opponent + MIN_BID:
+                    affordable.add(player.player_id)
+                closing[player.player_id] = price
+                mine_prices[player.player_id] = price
+                plan = attempt
+                planned_cost = plan.cost
+                continue
+            available.insert(index, player)
+            state.taken.discard(player.player_id)
+            walkaways += 1
+            bids = [row for row in bids if row[2] is not mine]
+            if not bids:
+                continue
+            ceiling, _, winner = bids[0]
+            price = MIN_BID if len(bids) == 1 else min(ceiling, bids[1][0] + MIN_BID)
         closing[player.player_id] = price
         winner.purchases.append(
             Purchase(
@@ -1078,18 +1183,12 @@ def _run_rollout(context: _RolloutContext, simulation: int) -> dict:
         )
         available.remove(player)
         state.taken.add(player.player_id)
-        if winner.is_mine:
-            mine_prices[player.player_id] = price
         if not mine.slots_left:
             continue
         # Every purchase moves the market. Bids consume the planned players' prices, so
         # those are refreshed after each one; the whole market is repriced and the plan
         # redrawn when that matters: we bought, a planned player is gone, or the plan
         # no longer costs what it planned.
-        if winner.is_mine:
-            plan = replan(plan)
-            planned_cost = plan.cost
-            continue
         if plan.has(player.player_id):
             plan = _substitute(mine, plan, player.player_id, available, context.wire)
         plan = _repriced(mine, plan, {**plan.prices, **reprice(plan.members)})
@@ -1131,6 +1230,7 @@ def _run_rollout(context: _RolloutContext, simulation: int) -> dict:
     result = {
         "simulation": simulation + 1,
         "valid": valid,
+        "walkaways": walkaways,
         "pathological": pathological,
         "position_max": position_max,
         "autofilled": autofilled,
@@ -1262,6 +1362,7 @@ def _simulate_auctions(context: _RolloutContext) -> tuple[dict, dict[int, dict]]
         "my_expected_points_rank": _stats([outcome["rank"] for outcome in outcomes], 2),
         "my_spend": _stats([outcome["spent"] for outcome in outcomes]),
         "my_unused_budget": _stats([outcome["remaining_budget"] for outcome in outcomes]),
+        "my_walkaways": _stats([outcome["walkaways"] for outcome in outcomes], 2),
         "opponent_unused_budget": {
             **_stats(opponent_unused),
             "share_at_least_10": (
@@ -1358,20 +1459,14 @@ def analyze(
         state, matches, sorted(source_ranks)
     )
     bidders = _opponent_bidders(state, curve_per_slot)
-    static_prices = _acquisition_prices(
-        candidates, bidders, source_by_roster, source_ranks, consensus_rank, curve
-    )
+    grid = _price_grid(candidates, source_ranks, consensus_rank, curve)
+    static_prices = _acquisition_prices(candidates, bidders, source_by_roster, grid)
     discretionary = max(
         0, state.mine.remaining_budget - MIN_BID * state.mine.slots_left
     )
 
-    def board(prices: dict[int, int], price_ratio: dict[int, float]):
-        plan = _plan_completion(state.mine, candidates, prices, wire)
-        max_bids = {
-            player.player_id: _plan_max_bid(state.mine, player, plan, candidates, wire)
-            for player in candidates
-        }
-        simulation, simulated_players = _simulate_auctions(
+    def rollouts(plan: Plan, price_ratio: dict[int, float]):
+        return _simulate_auctions(
             _RolloutContext(
                 state,
                 candidates,
@@ -1381,15 +1476,15 @@ def analyze(
                 consensus_rank,
                 source_by_roster,
                 matched_rosters,
+                grid,
                 plan,
                 price_ratio,
             )
         )
-        return plan, max_bids, simulation, simulated_players
 
     # Pass one rolls the auction out at static prices and records what beating the field
     # actually cost at each player's nomination; pass two plans and bids with that.
-    _, _, _, first_pass = board(static_prices, {})
+    _, first_pass = rollouts(_plan_completion(state.mine, candidates, static_prices, wire), {})
     price_ratio = {}
     for player in candidates:
         observed = first_pass[player.player_id]["simulated_acquisition_price"]
@@ -1398,7 +1493,50 @@ def analyze(
                 2.0, max(0.2, observed / static_prices[player.player_id])
             )
     prices = _learned_prices(static_prices, price_ratio, 1.0)
-    plan, max_bids, simulation, simulated_players = board(prices, price_ratio)
+    plan = _plan_completion(state.mine, candidates, prices, wire)
+    max_bids = {
+        player.player_id: _plan_max_bid(state.mine, player, plan, candidates, wire)
+        for player in candidates
+    }
+
+    # The formula bid linearizes the budget at the plan's shadow rate. When a bid is a
+    # large share of the legal maximum the affordability cliff is nearby, so the
+    # published ceiling gets the same check the rollout policy applies to a purchase:
+    # buying at that price must not plan worse than walking away (which hands the player
+    # to the field). Early in the auction no bid reaches the floor and this costs
+    # nothing; late, the replans it needs are cheap.
+    def verified_bid(player: Player, formula_bid: int) -> int:
+        others = [c for c in candidates if c.player_id != player.player_id]
+        walkaway = _plan_completion(state.mine, others, prices, wire, plan.point_rate)
+
+        def buys(bid: int) -> bool:
+            trial = Team(
+                state.mine.roster_id, state.mine.username, state.mine.team_name,
+                True, state.mine.budget, list(state.mine.purchases),
+            )
+            trial.purchases.append(
+                Purchase(0, player.sleeper_id, player.name, player.position, player.team, bid, player)
+            )
+            attempt = _plan_completion(trial, others, prices, wire, plan.point_rate)
+            return attempt.value >= walkaway.value - _WALKAWAY_TOLERANCE
+
+        if buys(formula_bid):
+            return formula_bid
+        low, high = MIN_BID, formula_bid
+        while high - low > 2:
+            mid = (low + high) // 2
+            if buys(mid):
+                low = mid
+            else:
+                high = mid
+        return low
+
+    verify_floor = max(10, math.ceil(0.4 * state.mine.max_legal_bid))
+    for player in candidates:
+        if max_bids[player.player_id] >= verify_floor:
+            max_bids[player.player_id] = verified_bid(player, max_bids[player.player_id])
+
+    simulation, simulated_players = rollouts(plan, price_ratio)
 
     provisional = []
     for player in candidates:
