@@ -17,6 +17,7 @@ import argparse
 import concurrent.futures
 import json
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -41,7 +42,12 @@ TIMEOUT_SECONDS = 30
 
 
 def get_json(url: str, timeout: int = TIMEOUT_SECONDS):
-    request = urllib.request.Request(url, headers={"Accept": "application/json"})
+    # Sleeper's CDN serves cached snapshots up to 5 minutes stale
+    # (s-maxage=15, stale-while-revalidate=300), and different cache entries
+    # can even roll the pick count backwards between refreshes. A unique
+    # query param forces a cache MISS so every fetch comes from origin.
+    bust = f"{'&' if '?' in url else '?'}nocache={time.time_ns()}"
+    request = urllib.request.Request(url + bust, headers={"Accept": "application/json"})
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return json.loads(response.read())
 
