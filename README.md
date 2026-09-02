@@ -148,6 +148,8 @@ the network-bound full refresh can still be slower.
   auction sources and infer opponent preferences
 - [Ranker](ranker/README.md): roster valuation, auction pricing, nomination strategy,
   and output contracts
+- [Weekly pipeline](weekly_pipeline/README.md): in-season lineup and free-agent check
+  from blended FantasyPros and Sleeper weekly projections
 - `index.html`: the main auction dashboard
 - `data_source_investigator/index.html`: opponent source-fit evidence
 - `serve.py`: serves both dashboards at http://127.0.0.1:8123
@@ -169,6 +171,13 @@ Refresh the offline source snapshot separately:
 ```bash
 uv run pool_pipeline/build_pool.py --report
 uv run data_source_investigator/pipeline.py --report
+```
+
+In season, print the week's best lineup and free-agent check (after exporting the
+week's FantasyPros QB and FLX projections into `weekly_pipeline/data/`):
+
+```bash
+uv run weekly_pipeline/lineup.py
 ```
 
 Run offline checks:
