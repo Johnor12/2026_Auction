@@ -3,11 +3,12 @@
 
 Two weekly projection sources are blended per player:
 
-- FantasyPros' weekly consensus, exported by hand into ``data/``: the QB page and the
-  FLX page (RB, WR and TE in one file) of https://www.fantasypros.com/nfl/projections/,
-  weekly view, half-PPR scoring. Unauthenticated page loads show ten rows, so the export
-  is the only complete form. The export carries no week number: it is assumed to be the
-  current Sleeper week.
+- FantasyPros' weekly consensus, exported by hand into ``data/week<N>/``: the QB page
+  and the FLX page (RB, WR and TE in one file) of
+  https://www.fantasypros.com/nfl/projections/, weekly view, half-PPR scoring.
+  Unauthenticated page loads show ten rows, so the export is the only complete form. The
+  export carries no week number, so the folder names it; this reads the current Sleeper
+  week's.
 - Sleeper's weekly projections (Rotowire), fetched live.
 
 Both stat lines are scored under the league's settings (``pool_pipeline/build_pool.py``
@@ -42,8 +43,8 @@ from ranker.value import sorted_by_horizon, team_value, wire_replacement  # noqa
 #: FantasyPros aggregates several projection sets; Sleeper republishes one (Rotowire).
 WEIGHTS = {"fantasypros": 0.6, "sleeper": 0.4}
 DATA_DIR = HERE / "data"
-QB_CSV = DATA_DIR / "FantasyPros_Fantasy_Football_Projections_QB.csv"
-FLX_CSV = DATA_DIR / "FantasyPros_Fantasy_Football_Projections_FLX.csv"
+QB_CSV = "FantasyPros_Fantasy_Football_Projections_QB.csv"
+FLX_CSV = "FantasyPros_Fantasy_Football_Projections_FLX.csv"
 #: The FLX export adds a POS column ("WR12") to the RB layout, and lists the rare
 #: rushing QB, which the QB file already covers.
 FLX_HEADER = ["Player", "Team", "POS", "ATT", "YDS", "TDS", "REC", "YDS", "TDS", "FL", "FPTS"]
@@ -81,12 +82,14 @@ def read_flx(path: Path) -> list[dict]:
     return out
 
 
-def fantasypros_points(index: match_sleeper.SleeperIndex) -> dict[str, float]:
-    for path in (QB_CSV, FLX_CSV):
+def fantasypros_points(index: match_sleeper.SleeperIndex, folder: Path) -> dict[str, float]:
+    """One week's exports, from ``data/week<N>/``."""
+    qb, flx = folder / QB_CSV, folder / FLX_CSV
+    for path in (qb, flx):
         if not path.exists():
-            sys.exit(f"missing {path.relative_to(ROOT)}: export this week's view")
+            sys.exit(f"missing {path.relative_to(ROOT)}: export that week's view")
     out: dict[str, float] = {}
-    for row in read_projections("QB", QB_CSV) + read_flx(FLX_CSV):
+    for row in read_projections("QB", qb) + read_flx(flx):
         player, _, clash = match_sleeper.match(row, index)
         if player is None:
             if clash:
@@ -147,7 +150,7 @@ def main() -> int:
 
     dump = json.loads(SLEEPER_PLAYERS.read_text())
     index = match_sleeper.SleeperIndex(dump)
-    fp = fantasypros_points(index)
+    fp = fantasypros_points(index, DATA_DIR / f"week{week}")
     sl = sleeper_points(season, week)
 
     def info(pid: str) -> dict:

@@ -148,8 +148,9 @@ the network-bound full refresh can still be slower.
   auction sources and infer opponent preferences
 - [Ranker](ranker/README.md): roster valuation, auction pricing, nomination strategy,
   and output contracts
-- [Weekly pipeline](weekly_pipeline/README.md): in-season lineup and free-agent check
-  from blended FantasyPros and Sleeper weekly projections
+- [Weekly pipeline](weekly_pipeline/README.md): in-season lineup and free-agent check,
+  and a rest-of-season waiver check with IR moves and suggested FAAB bids, from blended
+  FantasyPros and Sleeper weekly projections
 - `index.html`: the main auction dashboard
 - `data_source_investigator/index.html`: opponent source-fit evidence
 - `serve.py`: serves both dashboards at http://127.0.0.1:8123
@@ -174,10 +175,18 @@ uv run data_source_investigator/pipeline.py --report
 ```
 
 In season, print the week's best lineup and free-agent check (after exporting the
-week's FantasyPros QB and FLX projections into `weekly_pipeline/data/`):
+week's FantasyPros QB and FLX projections into `weekly_pipeline/data/week<N>/`):
 
 ```bash
 uv run weekly_pipeline/lineup.py
+```
+
+Check for +EV waiver pickups, IR moves, and FAAB bids. Each run refetches Sleeper's
+projections for every remaining week and the league's rosters and claims; FantasyPros
+exports in `weekly_pipeline/data/week<N>/` are blended into whichever weeks have them:
+
+```bash
+uv run weekly_pipeline/waivers.py
 ```
 
 Run offline checks:
